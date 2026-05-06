@@ -3,14 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Nodrix monorepo. Root package is provided so Railway can deploy from the repository root.",
+  "description": "Nodrix monorepo root package for Railway backend deployment.",
   "scripts": {
     "start": "node backend/src/server.js",
-    "dev": "node --watch backend/src/server.js",
-    "health": "node -e \"fetch('http://localhost:3000/health').then(r=>r.text()).then(console.log).catch(e=>{console.error(e);process.exit(1)})\""
+    "dev": "node --watch backend/src/server.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": "20.x"
   },
   "dependencies": {
     "cors": "^2.8.5",

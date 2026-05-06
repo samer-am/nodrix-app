@@ -1,0 +1,6 @@
+.git
+mobile_flutter
+**/node_modules
+**/.dart_tool
+**/build
+.env

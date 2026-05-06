@@ -1,103 +1,45 @@
 # Nodrix
 
-Nodrix is a starter UI/UX build for an ISP/SAS management app.
+Nodrix is a starter network/SAS management app.
 
 ## Structure
 
-```text
-backend/          Node.js Express API
-mobile_flutter/   Flutter app
-package.json      Root package for Railway deployment
-railway.json      Railway deployment config
-```
-
-## Backend local run
-
-From the project root:
-
-```cmd
-npm install
-copy backend\.env.example .env
-npm run dev
-```
-
-Or from the backend folder:
-
-```cmd
-cd backend
-npm install
-copy .env.example .env
-npm run dev
-```
-
-Health check:
-
-```text
-http://localhost:3000/health
-```
-
-## Flutter local run
-
-```cmd
-cd mobile_flutter
-flutter create .
-flutter pub get
-flutter run -d edge
-```
-
-Demo credentials inside the app:
-
-```text
-Backend URL: http://localhost:3000
-SAS Type: mock
-SAS URL: https://demo.local
-Username: admin
-Password: admin123
-```
+- `backend/` Node.js Express API
+- `mobile_flutter/` Flutter mobile app
 
 ## Railway deployment
 
-This zip includes a root `package.json` and `railway.json`, so Railway can deploy directly from the repository root.
+Railway should deploy from the repository root. The root `package.json` starts the backend with:
 
-Use:
-
-```text
-Build: automatic
-Start command: npm start
-Health check: /health
+```bash
+npm start
 ```
 
-If you prefer Railway root directory settings, set:
+Health endpoint:
 
 ```text
-Root Directory: backend
-Start Command: npm start
+/health
 ```
 
-But with the root files included, this is optional.
+Expected response:
 
-Environment variables on Railway:
-
-```text
-APP_SECRET=change-this-secret
+```json
+{"ok":true,"service":"Nodrix Backend"}
 ```
 
-Do not set `PORT` manually on Railway unless Railway requires it. The server uses `process.env.PORT` automatically.
+Important: this package intentionally does **not** include a `railway.json` region or multi-region configuration. If Railway shows an error about `CONFIGURE_NETWORK` and invalid region `ams`, remove the multi-region/network region setting from the Railway service dashboard, then redeploy.
 
-After Railway gives you a public URL, use it in the app as `Backend URL`.
+## Local backend
 
-## Build Android APK
-
-Inside `mobile_flutter`:
-
-```cmd
-flutter create .
-flutter pub get
-flutter build apk --debug
+```bash
+npm install
+npm start
 ```
 
-APK output:
+or:
 
-```text
-mobile_flutter\build\app\outputs\flutter-apk\app-debug.apk
+```bash
+cd backend
+npm install
+npm start
 ```
