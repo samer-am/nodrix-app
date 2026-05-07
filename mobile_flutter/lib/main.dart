@@ -427,6 +427,7 @@ class SasWebLoginPage extends StatefulWidget {
 class _SasWebLoginPageState extends State<SasWebLoginPage> {
   late final WebViewController controller;
   bool saving = false;
+  Completer<String>? _sasJsCompleter;
   String message = 'سجل دخولك داخل لوحة SAS. سيتم حفظ الجلسة تلقائيًا بعد نجاح الدخول.';
 
   String normalizedUrl() {
@@ -440,6 +441,10 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
     super.initState();
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel('NodrixSas', onMessageReceived: (JavaScriptMessage msg) {
+        final c = _sasJsCompleter;
+        if (c != null && !c.isCompleted) c.complete(msg.message);
+      })
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) => captureToken(),
       ))
@@ -459,104 +464,120 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
     return text.trim();
   }
 
-  Future<Map<String, dynamic>> syncUsersInsideWebView(String token) async {
-    Future<Map<String, dynamic>> fetchPage(int page) async {
-      final js = '''
-(async () => {
-  const token = localStorage.getItem("sas4_jwt") || sessionStorage.getItem("sas4_jwt") || ${jsonEncode(token)};
-  const hasCrypto = !!window.CryptoJS;
-  if (!token) {
-    return JSON.stringify({ok:false,phase:'token',message:'NO_TOKEN: لم أجد جلسة sas4_jwt داخل المتصفح'});
-  }
-  if (!hasCrypto) {
-    return JSON.stringify({ok:false,phase:'crypto',message:'NO_CRYPTOJS: مكتبة التشفير غير متاحة داخل WebView'});
-  }
-
-  const key = "abcdefghijuklmno0123456789012345";
-  const payloadData = {
-    page: $page,
-    count: 10,
-    direction: "asc",
-    sortBy: "username",
-    search: "",
-    columns: [
-      "id",
-      "username",
-      "firstname",
-      "lastname",
-      "expiration",
-      "parent_username",
-      "name",
-      "loan_balance",
-      "traffic",
-      "remaining_days"
-    ]
-  };
-
-  try {
-    const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(payloadData), key).toString();
-    const res = await fetch("/admin/api/index.php/api/index/user", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "authorization": "Bearer " + token,
-        "content-type": "application/json",
-        "accept": "application/json, text/plain, */*"
-      },
-      body: JSON.stringify({ payload: encrypted })
-    });
-
-    const text = await res.text();
-    if (!res.ok) {
-      return JSON.stringify({
-        ok:false,
-        phase:'users',
-        status:res.status,
-        page:$page,
-        message:'SAS رفض طلب المستخدمين HTTP ' + res.status,
-        body:text.slice(0,1000)
-      });
+  Future<Map<String, dynamic>> _runSasPageFetchViaChannel(int page, String token) async {
+    final completer = Completer<String>();
+    _sasJsCompleter = completer;
+    final js = '''
+(function () {
+  const fallbackToken = __TOKEN__;
+  const pageNumber = __PAGE__;
+  function finish(obj) {
+    try {
+      NodrixSas.postMessage(JSON.stringify(obj));
+    } catch (e) {
+      // Nothing else is possible here. Flutter timeout will handle it.
     }
+  }
+  (async function () {
+    try {
+      const token = localStorage.getItem("sas4_jwt") || sessionStorage.getItem("sas4_jwt") || fallbackToken;
+      if (!token) {
+        finish({ok:false,phase:'token',message:'NO_TOKEN: لم أجد جلسة sas4_jwt داخل المتصفح'});
+        return;
+      }
+      if (!window.CryptoJS || !window.CryptoJS.AES) {
+        finish({ok:false,phase:'crypto',message:'NO_CRYPTOJS: مكتبة التشفير غير متاحة داخل WebView'});
+        return;
+      }
+
+      const key = "abcdefghijuklmno0123456789012345";
+      const payloadData = {
+        page: pageNumber,
+        count: 10,
+        direction: "asc",
+        sortBy: "username",
+        search: "",
+        columns: [
+          "id",
+          "username",
+          "firstname",
+          "lastname",
+          "expiration",
+          "parent_username",
+          "name",
+          "loan_balance",
+          "traffic",
+          "remaining_days"
+        ]
+      };
+
+      const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(payloadData), key).toString();
+      const res = await fetch("/admin/api/index.php/api/index/user", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "authorization": "Bearer " + token,
+          "content-type": "application/json",
+          "accept": "application/json, text/plain, */*"
+        },
+        body: JSON.stringify({ payload: encrypted })
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        finish({
+          ok:false,
+          phase:'users',
+          status:res.status,
+          page:pageNumber,
+          message:'SAS رفض طلب المستخدمين HTTP ' + res.status,
+          body:text.slice(0,1000)
+        });
+        return;
+      }
+
+      try {
+        const json = JSON.parse(text);
+        finish({
+          ok:true,
+          phase:'users',
+          page:pageNumber,
+          current_page: json.current_page,
+          last_page: json.last_page,
+          total: json.total,
+          dataLength: Array.isArray(json.data) ? json.data.length : -1,
+          data: json
+        });
+      } catch(e) {
+        finish({ok:false,phase:'parse',status:res.status,page:pageNumber,message:'استجابة SAS ليست JSON: '+e.message,body:text.slice(0,1000)});
+      }
+    } catch(e) {
+      finish({ok:false,phase:'exception',page:pageNumber,message:String(e && e.message ? e.message : e)});
+    }
+  })();
+})();
+'''.replaceAll('__TOKEN__', jsonEncode(token)).replaceAll('__PAGE__', '$page');
 
     try {
-      const json = JSON.parse(text);
-      return JSON.stringify({
-        ok:true,
-        phase:'users',
-        page:$page,
-        current_page: json.current_page,
-        last_page: json.last_page,
-        total: json.total,
-        dataLength: Array.isArray(json.data) ? json.data.length : -1,
-        data: json
-      });
-    } catch(e) {
-      return JSON.stringify({ok:false,phase:'parse',status:res.status,page:$page,message:'استجابة SAS ليست JSON: '+e.message,body:text.slice(0,1000)});
+      await controller.runJavaScript(js);
+      final text = await completer.future.timeout(const Duration(seconds: 20));
+      final decoded = jsonDecode(text);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'ok': false, 'phase': 'decode', 'message': 'استجابة WebView غير صحيحة', 'body': text.length > 1000 ? text.substring(0, 1000) : text};
+    } on TimeoutException {
+      return {'ok': false, 'phase': 'timeout', 'page': page, 'message': 'انتهى وقت انتظار WebView أثناء جلب صفحة SAS'};
+    } catch (e) {
+      return {'ok': false, 'phase': 'flutter-js', 'page': page, 'message': 'فشل تنفيذ JavaScript داخل WebView: $e'};
+    } finally {
+      if (identical(_sasJsCompleter, completer)) _sasJsCompleter = null;
     }
-  } catch(e) {
-    return JSON.stringify({ok:false,phase:'exception',page:$page,message:String(e && e.message ? e.message : e)});
   }
-})();
-''';
-      final result = await controller.runJavaScriptReturningResult(js);
-      final text = _cleanJsResult(result);
-      try {
-        final decoded = jsonDecode(text);
-        if (decoded is Map<String, dynamic>) return decoded;
-        if (decoded is String) {
-          final decoded2 = jsonDecode(decoded);
-          if (decoded2 is Map<String, dynamic>) return decoded2;
-        }
-      } catch (_) {
-        return {'ok': false, 'phase': 'decode', 'message': 'تعذر قراءة نتيجة WebView', 'body': text.length > 1000 ? text.substring(0, 1000) : text};
-      }
-      return {'ok': false, 'phase': 'decode', 'message': 'استجابة WebView غير صحيحة'};
-    }
 
+  Future<Map<String, dynamic>> syncUsersInsideWebView(String token) async {
     try {
       await Future.delayed(const Duration(milliseconds: 1200));
 
-      final first = await fetchPage(1);
+      final first = await _runSasPageFetchViaChannel(1, token);
       if (first['ok'] != true) {
         final body = asText(first['body'], '');
         return {
@@ -574,7 +595,7 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
       final total = totalRaw is num ? totalRaw.toInt() : int.tryParse('$totalRaw') ?? users.length;
 
       for (int page = 2; page <= lastPage; page++) {
-        final next = await fetchPage(page);
+        final next = await _runSasPageFetchViaChannel(page, token);
         if (next['ok'] != true) {
           final body = asText(next['body'], '');
           return {
