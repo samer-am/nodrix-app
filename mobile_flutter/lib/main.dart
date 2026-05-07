@@ -472,7 +472,7 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
   const encryptedPayload = $payloadText;
   if (!token || token.length < 20) return JSON.stringify({ok:false,message:'لم يتم العثور على جلسة SAS داخل المتصفح'});
   try {
-    const res = await fetch('/admin/api/index.php/api/index/user?page=$page', {
+    const res = await fetch('/admin/api/index.php/api/index/user', {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -507,9 +507,12 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
     }
 
     try {
-      const count = 100;
+      const count = 10;
       final first = await fetchPage(1, count);
-      if (first['ok'] != true) return first;
+      if (first['ok'] != true) {
+        first['message'] = '${asText(first['message'], 'فشل جلب الصفحة الأولى من SAS')} | status=${asText(first['status'], 'غير معروف')} | body=${asText(first['body'], '').substring(0, asText(first['body'], '').length > 180 ? 180 : asText(first['body'], '').length)}';
+        return first;
+      }
       final data = first['data'];
       if (data is! Map) return {'ok': false, 'message': 'بنية بيانات SAS غير صحيحة في الصفحة الأولى'};
       List<dynamic> users = (data['data'] is List) ? List<dynamic>.from(data['data'] as List) : <dynamic>[];

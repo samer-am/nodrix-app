@@ -212,15 +212,17 @@ async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
   }
 }
 
-function userIndexPayload(page = 1, rowsPerPage = 100) {
+function userIndexPayload(page = 1, rowsPerPage = 10) {
+  // Keep this payload identical to the SAS Radius users table request.
+  // Important: the original Angular table sends page/count/direction/sortBy/search/columns only;
+  // no rowsPerPage and no ?page= query string. Some SAS builds reject extra fields.
   return {
     page,
     count: rowsPerPage,
-    rowsPerPage,
-    search: '',
-    sortBy: 'username',
     direction: 'asc',
-    columns: ['id', 'username', 'firstname', 'lastname', 'expiration', 'parent_username', 'name', 'loan_balance', 'traffic', 'remaining_days'],
+    sortBy: 'username',
+    search: '',
+    columns: ['idx', 'username', 'firstname', 'lastname', 'expiration', 'parent_username', 'name', 'loan_balance', 'traffic', 'remaining_days'],
   };
 }
 
@@ -237,7 +239,7 @@ async function uniqueFiFetchUsers(config) {
   let total = 0;
   try {
     for (let page = 1; page <= lastPage && page <= 200; page++) {
-      const response = await uniqueFiEncryptedPost(config.sasUrl, `index/user?page=${page}`, userIndexPayload(page), token);
+      const response = await uniqueFiEncryptedPost(config.sasUrl, 'index/user', userIndexPayload(page, 10), token);
       const rows = Array.isArray(response?.data) ? response.data : [];
       all.push(...rows);
       lastPage = Number(response?.last_page || lastPage || 1);
@@ -970,7 +972,7 @@ app.get('/api/sas/diagnose', async (req, res) => {
       token = login.token;
     }
     try {
-      const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user?page=1', userIndexPayload(1), token);
+      const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user', userIndexPayload(1, 10), token);
       return res.json({
         ok: true,
         phase: 'users',
@@ -992,7 +994,7 @@ app.get('/api/sas/diagnose', async (req, res) => {
 app.post('/api/sas/encrypt-user-index-payload', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.body?.page || 1));
-    const count = Math.min(200, Math.max(1, Number(req.body?.count || 100)));
+    const count = Math.min(200, Math.max(1, Number(req.body?.count || 10)));
     res.json({ ok: true, payload: cryptoJsAesEncrypt(userIndexPayload(page, count)), page, count });
   } catch (error) {
     res.status(500).json({ ok: false, message: error.message });
