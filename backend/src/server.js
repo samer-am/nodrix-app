@@ -11,6 +11,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'https://nodrix-app-production.up.railway.app';
+const sasSyncMode = process.env.SAS_SYNC_MODE || 'mock';
 const defaultCompanyId = process.env.DEFAULT_COMPANY_ID || 'demo-company';
 const databaseUrl = process.env.DATABASE_URL || '';
 
@@ -52,11 +53,27 @@ function addDays(days) {
   return d.toISOString().slice(0, 10);
 }
 
+function cleanDate(value) {
+  if (value === undefined || value === null) return null;
+  const raw = String(value).trim();
+  if (!raw || raw === '—' || raw.toLowerCase() === 'invalid date') return null;
+  const iso = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function displayDate(value, fallback = '') {
+  return cleanDate(value) || fallback;
+}
+
 function statusFromExpiry(expiresAt, savedStatus = 'active') {
   if (savedStatus === 'paused') return 'paused';
-  if (!expiresAt) return savedStatus || 'active';
+  const clean = cleanDate(expiresAt);
+  if (!clean) return savedStatus || 'unknown';
   const today = new Date(`${todayIso()}T00:00:00Z`);
-  const exp = new Date(`${expiresAt}T00:00:00Z`);
+  const exp = new Date(`${clean}T00:00:00Z`);
   const diffDays = Math.ceil((exp.getTime() - today.getTime()) / 86400000);
   if (diffDays < 0) return 'expired';
   if (diffDays <= 3) return 'expires_soon';
@@ -65,14 +82,14 @@ function statusFromExpiry(expiresAt, savedStatus = 'active') {
 
 function normalizeCustomer(row) {
   if (!row) return null;
-  const expiresAt = row.expires_at ? String(row.expires_at).slice(0, 10) : row.expiresAt;
-  const startAt = row.start_at ? String(row.start_at).slice(0, 10) : row.startAt;
+  const expiresAt = displayDate(row.sas_expiry_date || row.expires_at || row.expiresAt);
+  const startAt = displayDate(row.sas_start_date || row.start_at || row.startAt);
   return {
     id: row.id,
     name: row.name,
     phone: row.phone,
     address: row.address || '',
-    package: row.package_name || row.package || '',
+    package: row.sas_package || row.package_name || row.package || '',
     speed: row.speed || '',
     price: row.price ?? 0,
     startAt,
@@ -83,6 +100,14 @@ function normalizeCustomer(row) {
     notes: row.notes || '',
     debt: row.debt ?? 0,
     companyId: row.company_id || row.companyId || defaultCompanyId,
+    source: row.source || 'manual',
+    sasId: row.sas_id || '',
+    sasUsername: row.sas_username || '',
+    sasStatus: row.sas_status || '',
+    sasPhone: row.sas_phone || '',
+    sasIp: row.sas_ip || '',
+    sasMac: row.sas_mac || '',
+    lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : '',
   };
 }
 
@@ -177,6 +202,21 @@ async function migrateDatabase() {
       status TEXT NOT NULL DEFAULT 'offline',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_id TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_username TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_package TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_status TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_start_date DATE;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_expiry_date DATE;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_phone TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_ip TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_mac TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_company_sas_id ON customers(company_id, sas_id) WHERE sas_id IS NOT NULL;
   `);
 
   await pool.query(
@@ -274,8 +314,8 @@ async function dbDashboard() {
 
 async function dbAddCustomer(body) {
   const customerId = id('cus');
-  const startAt = body.startAt || body.start_at || todayIso();
-  const expiresAt = body.expiresAt || body.expires_at || addDays(30);
+  const startAt = cleanDate(body.startAt || body.start_at);
+  const expiresAt = cleanDate(body.expiresAt || body.expires_at);
   const result = await pool.query(
     `INSERT INTO customers (id, company_id, name, phone, address, package_name, speed, price, start_at, expires_at, status, tower, sector, notes, debt)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
@@ -320,8 +360,8 @@ async function dbUpdateCustomer(customerId, body) {
       body.package ?? current.package,
       body.speed ?? current.speed,
       toInt(body.price ?? current.price),
-      body.startAt ?? current.startAt,
-      body.expiresAt ?? current.expiresAt,
+      cleanDate(body.startAt ?? current.startAt),
+      cleanDate(body.expiresAt ?? current.expiresAt),
       body.status ?? current.status,
       body.tower ?? current.tower,
       body.sector ?? current.sector,
@@ -350,8 +390,8 @@ async function dbAddPayment(customerId, body) {
   const customer = await dbCustomer(customerId);
   if (!customer) return { ok: false, message: 'المشترك غير موجود' };
   const paymentId = id('pay');
-  const paidAt = body.date || body.paidAt || todayIso();
-  const expiresAt = body.expiresAt || body.expires_at || customer.expiresAt;
+  const paidAt = cleanDate(body.date || body.paidAt) || todayIso();
+  const expiresAt = cleanDate(body.expiresAt || body.expires_at || customer.expiresAt);
   const amount = toInt(body.amount);
   await pool.query(
     `INSERT INTO payments (id, company_id, customer_id, amount, paid_at, expires_at, note)
@@ -366,16 +406,97 @@ async function dbAddPayment(customerId, body) {
   return { ok: true, message: 'تم تسجيل الدفعة', paymentId };
 }
 
+
+function mockSasCustomers() {
+  return [
+    {
+      sasId: 'sas_1001', sasUsername: 'ali.home', name: 'علي حسن', phone: '07700000001', package: 'Home 25M', status: 'active',
+      startAt: addDays(-9), expiresAt: addDays(21), ip: '10.10.1.21', mac: 'AA:BB:CC:00:10:01', price: 25000,
+    },
+    {
+      sasId: 'sas_1002', sasUsername: 'zainab.biz', name: 'زينب محمد', phone: '07700000002', package: 'Business 50M', status: 'active',
+      startAt: addDays(-28), expiresAt: addDays(2), ip: '10.10.1.22', mac: 'AA:BB:CC:00:10:02', price: 45000,
+    },
+    {
+      sasId: 'sas_1003', sasUsername: 'omar.home', name: 'عمر خالد', phone: '07700000003', package: 'Home 25M', status: 'expired',
+      startAt: addDays(-40), expiresAt: addDays(-4), ip: '10.10.1.23', mac: 'AA:BB:CC:00:10:03', price: 25000,
+    },
+    {
+      sasId: 'sas_1004', sasUsername: 'hussein.plus', name: 'حسين سعيد', phone: '07700000004', package: 'Plus 35M', status: 'active',
+      startAt: addDays(-4), expiresAt: addDays(26), ip: '10.10.1.24', mac: 'AA:BB:CC:00:10:04', price: 35000,
+    },
+  ];
+}
+
+async function syncCustomersFromSas() {
+  if (!pool) return { ok: false, message: 'PostgreSQL غير مفعل' };
+  const items = mockSasCustomers();
+  let created = 0;
+  let updated = 0;
+  for (const item of items) {
+    const customerId = id('cus');
+    const result = await pool.query(
+      `INSERT INTO customers (
+        id, company_id, name, phone, package_name, price, start_at, expires_at, status,
+        sas_id, sas_username, sas_package, sas_status, sas_start_date, sas_expiry_date, sas_phone, sas_ip, sas_mac, source, last_synced_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'sas',NOW())
+      ON CONFLICT (company_id, sas_id) WHERE sas_id IS NOT NULL DO UPDATE SET
+        name=EXCLUDED.name,
+        phone=EXCLUDED.phone,
+        package_name=EXCLUDED.package_name,
+        price=EXCLUDED.price,
+        start_at=EXCLUDED.start_at,
+        expires_at=EXCLUDED.expires_at,
+        status=EXCLUDED.status,
+        sas_username=EXCLUDED.sas_username,
+        sas_package=EXCLUDED.sas_package,
+        sas_status=EXCLUDED.sas_status,
+        sas_start_date=EXCLUDED.sas_start_date,
+        sas_expiry_date=EXCLUDED.sas_expiry_date,
+        sas_phone=EXCLUDED.sas_phone,
+        sas_ip=EXCLUDED.sas_ip,
+        sas_mac=EXCLUDED.sas_mac,
+        source='sas',
+        last_synced_at=NOW(),
+        updated_at=NOW()
+      RETURNING (xmax = 0) AS inserted`,
+      [
+        customerId,
+        defaultCompanyId,
+        item.name,
+        item.phone || '',
+        item.package || '',
+        toInt(item.price),
+        cleanDate(item.startAt),
+        cleanDate(item.expiresAt),
+        item.status || 'active',
+        item.sasId,
+        item.sasUsername || '',
+        item.package || '',
+        item.status || '',
+        cleanDate(item.startAt),
+        cleanDate(item.expiresAt),
+        item.phone || '',
+        item.ip || '',
+        item.mac || '',
+      ]
+    );
+    if (result.rows[0]?.inserted) created += 1;
+    else updated += 1;
+  }
+  return { ok: true, source: sasSyncMode, created, updated, total: items.length, syncedAt: new Date().toISOString() };
+}
+
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'Nodrix Backend', database: pool ? 'postgresql' : 'mock' });
 });
 
 app.get('/api/app-version', (req, res) => {
-  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.5';
+  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.6';
   const apkUrl = process.env.APP_APK_URL || `${publicBaseUrl}/downloads/nodrix-latest.apk`;
   const notes =
     process.env.APP_UPDATE_NOTES ||
-    'تحسين احترافي للواجهة، تصغير الأيقونات، تنظيم الأزرار، وربط PostgreSQL لحفظ المشتركين والدفعات.';
+    'تأسيس مزامنة SAS، إصلاح التواريخ، تجهيز حقول SAS للمشتركين، وحفظ نسخة محلية في PostgreSQL.';
 
   res.json({
     ok: true,
@@ -407,6 +528,26 @@ app.post('/api/sas/save', async (req, res) => {
   savedConfig = { type, sasUrl, username, password };
   res.json({ ok: true, message: pool ? 'تم حفظ الإعدادات، البيانات محفوظة في PostgreSQL' : 'SAS config saved in memory for demo only' });
 });
+
+app.get('/api/sas/status', async (req, res) => {
+  try {
+    if (!pool) return res.json({ ok: true, database: 'mock', source: savedConfig?.type || 'mock', lastSyncedAt: null, count: 0 });
+    const count = await pool.query(`SELECT COUNT(*)::int AS count, MAX(last_synced_at) AS last_synced_at FROM customers WHERE company_id=$1 AND source='sas'`, [defaultCompanyId]);
+    res.json({ ok: true, database: 'postgresql', source: savedConfig?.type || sasSyncMode, count: count.rows[0].count, lastSyncedAt: count.rows[0].last_synced_at });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+app.post('/api/sas/sync', async (req, res) => {
+  try {
+    const result = await syncCustomersFromSas();
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
 
 app.get('/api/dashboard', async (req, res) => {
   try {

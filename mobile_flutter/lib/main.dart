@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 
-const String currentAppVersion = '1.0.5';
+const String currentAppVersion = '1.0.6';
 const String defaultBackendUrl = 'https://nodrix-app-production.up.railway.app';
 
 void main() {
@@ -134,6 +134,18 @@ String money(dynamic value) {
 
 String todayIso() => DateTime.now().toIso8601String().substring(0, 10);
 String afterDays(int days) => DateTime.now().add(Duration(days: days)).toIso8601String().substring(0, 10);
+
+String cleanDateText(dynamic value) {
+  final raw = value?.toString().trim() ?? '';
+  if (raw.isEmpty || raw == '—' || raw.toLowerCase() == 'invalid date') return '';
+  final match = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(raw);
+  if (match != null) return match.group(1)!;
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return '';
+  return parsed.toIso8601String().substring(0, 10);
+}
+
+String dateLabel(dynamic value) => cleanDateText(value).isEmpty ? 'غير متوفر' : cleanDateText(value);
 
 Color statusColor(String status) {
   switch (status) {
@@ -451,7 +463,7 @@ class _CustomersPageState extends State<CustomersPage> {
   List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> items) {
     return items.where((c) {
       final q = query.trim();
-      final matchesQuery = q.isEmpty || '${c['name']} ${c['phone']} ${c['tower']} ${c['sector']}'.contains(q);
+      final matchesQuery = q.isEmpty || '${c['name']} ${c['phone']} ${c['sasUsername']} ${c['tower']} ${c['sector']}'.contains(q);
       final matchesFilter = filter == 'all' || c['status'] == filter;
       return matchesQuery && matchesFilter;
     }).toList();
@@ -543,8 +555,8 @@ class CustomerCard extends StatelessWidget {
         const SizedBox(height: 12),
         Row(children: [
           Expanded(child: _MiniInfo('الباقة', asText(customer['package']))),
-          Expanded(child: _MiniInfo('السعر', money(customer['price']))),
-          Expanded(child: _MiniInfo('الانتهاء', asText(customer['expiresAt']))),
+          Expanded(child: _MiniInfo('اليوزر', asText(customer['sasUsername'], asText(customer['phone'])))),
+          Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
         ]),
         const SizedBox(height: 12),
         Row(children: [
@@ -606,8 +618,10 @@ class CustomerDetailsPage extends StatelessWidget {
         AppCard(child: Column(children: [
           InfoLine('الباقة', asText(customer['package']), Icons.speed_rounded),
           InfoLine('السعر', money(customer['price']), Icons.payments_rounded),
-          InfoLine('تاريخ البداية', asText(customer['startAt']), Icons.calendar_month_rounded),
-          InfoLine('تاريخ الانتهاء', asText(customer['expiresAt']), Icons.event_busy_rounded),
+          InfoLine('يوزر SAS', asText(customer['sasUsername']), Icons.alternate_email_rounded),
+          InfoLine('مصدر البيانات', asText(customer['source'], 'manual') == 'sas' ? 'من الساس' : 'يدوي/محلي', Icons.sync_rounded),
+          InfoLine('تاريخ البداية', dateLabel(customer['startAt']), Icons.calendar_month_rounded),
+          InfoLine('تاريخ الانتهاء', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
           InfoLine('البرج', asText(customer['tower']), Icons.cell_tower_rounded),
           InfoLine('السكتر', asText(customer['sector']), Icons.settings_input_antenna_rounded),
           InfoLine('الدين', money(customer['debt']), Icons.account_balance_wallet_rounded),
@@ -653,7 +667,7 @@ class CustomerFormPage extends StatefulWidget {
 }
 
 class _CustomerFormPageState extends State<CustomerFormPage> {
-  late final TextEditingController name, phone, package, speed, price, tower, sector, startAt, expiresAt, address, notes, debt;
+  late final TextEditingController name, phone, package, speed, price, tower, sector, address, notes, debt;
   bool saving = false;
   bool get editing => widget.customer != null;
 
@@ -668,8 +682,6 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     price = TextEditingController(text: asText(c['price'], '25000'));
     tower = TextEditingController(text: asText(c['tower'], ''));
     sector = TextEditingController(text: asText(c['sector'], ''));
-    startAt = TextEditingController(text: asText(c['startAt'], todayIso()));
-    expiresAt = TextEditingController(text: asText(c['expiresAt'], afterDays(30)));
     address = TextEditingController(text: asText(c['address'], ''));
     notes = TextEditingController(text: asText(c['notes'], ''));
     debt = TextEditingController(text: asText(c['debt'], '0'));
@@ -689,8 +701,6 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
       'price': asInt(price.text),
       'tower': tower.text.trim(),
       'sector': sector.text.trim(),
-      'startAt': startAt.text.trim(),
-      'expiresAt': expiresAt.text.trim(),
       'address': address.text.trim(),
       'notes': notes.text.trim(),
       'debt': asInt(debt.text),
@@ -734,8 +744,16 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
           input('الدين', debt, Icons.account_balance_wallet_rounded, type: TextInputType.number),
           input('البرج', tower, Icons.cell_tower_rounded),
           input('السكتر', sector, Icons.settings_input_antenna_rounded),
-          input('تاريخ البداية', startAt, Icons.calendar_today_rounded),
-          input('تاريخ الانتهاء', expiresAt, Icons.event_busy_rounded),
+          AppCard(
+            color: AppColors.panel,
+            padding: const EdgeInsets.all(12),
+            child: const Row(children: [
+              Icon(Icons.info_outline_rounded, color: AppColors.warning, size: 18),
+              SizedBox(width: 10),
+              Expanded(child: Text('التواريخ والباقات الأساسية ستأتي من الساس عند المزامنة. لا تدخلها يدويًا.', style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.4))),
+            ]),
+          ),
+          const SizedBox(height: 12),
           input('العنوان', address, Icons.location_on_rounded),
           input('ملاحظات', notes, Icons.notes_rounded, maxLines: 2),
           const SizedBox(height: 4),
@@ -755,7 +773,7 @@ class PaymentPage extends StatefulWidget {
 }
 
 class _PaymentPageState extends State<PaymentPage> {
-  late final TextEditingController amount, date, expiresAt;
+  late final TextEditingController amount;
   final note = TextEditingController();
   bool saving = false;
 
@@ -763,14 +781,12 @@ class _PaymentPageState extends State<PaymentPage> {
   void initState() {
     super.initState();
     amount = TextEditingController(text: asText(widget.customer['price'], ''));
-    date = TextEditingController(text: todayIso());
-    expiresAt = TextEditingController(text: afterDays(30));
   }
 
   Future<void> save() async {
     setState(() => saving = true);
     try {
-      final result = await widget.api.addPayment(widget.customer['id'], {'amount': asInt(amount.text), 'date': date.text.trim(), 'expiresAt': expiresAt.text.trim(), 'note': note.text.trim()});
+      final result = await widget.api.addPayment(widget.customer['id'], {'amount': asInt(amount.text), 'note': note.text.trim()});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(asText(result['message'], 'تمت العملية'))));
       if (result['ok'] == true) Navigator.pop(context, true);
@@ -791,8 +807,7 @@ class _PaymentPageState extends State<PaymentPage> {
     return Scaffold(appBar: AppBar(title: const Text('تسجيل دفعة')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
       AppCard(child: Column(children: [
         input('المبلغ', amount, Icons.payments_rounded, type: TextInputType.number),
-        input('تاريخ الدفع', date, Icons.calendar_today_rounded),
-        input('تاريخ الانتهاء الجديد', expiresAt, Icons.event_busy_rounded),
+        const Padding(padding: EdgeInsets.only(bottom: 12), child: Text('تاريخ الدفع يحسب تلقائيًا. تاريخ الانتهاء يبقى من الساس ولا يكتب يدويًا.', style: TextStyle(color: AppColors.muted, fontSize: 12.5))),
         input('ملاحظة', note, Icons.notes_rounded),
         FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded, size: 18), label: const Text('حفظ الدفعة')),
       ])),
@@ -928,6 +943,7 @@ class MorePage extends StatelessWidget {
       const SizedBox(height: 12),
       MoreSection(title: 'النظام', children: [
         MoreTile(icon: Icons.notifications_rounded, label: 'التنبيهات', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemindersPage(api: api)))),
+        MoreTile(icon: Icons.sync_rounded, label: 'مزامنة الساس', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SasSyncPage(api: api)))),
         MoreTile(icon: Icons.system_update_rounded, label: 'التحديثات', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UpdatesPage(api: api)))),
         MoreTile(icon: Icons.settings_rounded, label: 'الإعدادات', onTap: () {}),
       ]),
@@ -972,6 +988,77 @@ class MoreTile extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+
+class SasSyncPage extends StatefulWidget {
+  final ApiService api;
+  const SasSyncPage({super.key, required this.api});
+  @override
+  State<SasSyncPage> createState() => _SasSyncPageState();
+}
+
+class _SasSyncPageState extends State<SasSyncPage> {
+  bool loading = false;
+  Map<String, dynamic>? status;
+  String message = '';
+
+  @override
+  void initState() {
+    super.initState();
+    loadStatus();
+  }
+
+  Future<void> loadStatus() async {
+    try {
+      final result = await widget.api.getSasStatus();
+      if (mounted) setState(() => status = result);
+    } catch (e) {
+      if (mounted) setState(() => message = 'تعذر قراءة حالة الساس: $e');
+    }
+  }
+
+  Future<void> sync() async {
+    setState(() { loading = true; message = ''; });
+    try {
+      final result = await widget.api.syncSas();
+      if (!mounted) return;
+      setState(() => message = result['ok'] == true
+          ? 'تمت المزامنة: جديد ${result['created'] ?? 0} / تحديث ${result['updated'] ?? 0}'
+          : asText(result['message'], 'فشلت المزامنة'));
+      await loadStatus();
+    } catch (e) {
+      if (mounted) setState(() => message = 'خطأ: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = status ?? {};
+    return Scaffold(appBar: AppBar(title: const Text('مزامنة الساس')), body: ListView(padding: const EdgeInsets.all(18), children: [
+      AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('مصدر البيانات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 10),
+        const Text('هذه المرحلة تجهيز للمزامنة الحقيقية. حاليًا يتم استخدام Mock SAS بنفس هيكل البيانات المطلوب حتى نربط لوحة الساس التي سترسلها لاحقًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        const SizedBox(height: 14),
+        MetricLine('قاعدة البيانات', asText(s['database'], 'postgresql')),
+        MetricLine('المصدر', asText(s['source'], 'mock')),
+        MetricLine('عدد مشتركين SAS', asText(s['count'], '0')),
+        MetricLine('آخر مزامنة', dateLabel(s['lastSyncedAt']), last: true),
+        if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(message, style: const TextStyle(color: AppColors.warning))),
+        const SizedBox(height: 14),
+        FilledButton.icon(onPressed: loading ? null : sync, icon: const Icon(Icons.sync_rounded, size: 18), label: Text(loading ? 'جاري المزامنة...' : 'مزامنة الآن')),
+      ])),
+      const SizedBox(height: 12),
+      const AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('ما الذي يأتي من الساس؟', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+        SizedBox(height: 10),
+        Text('اليوزر، الباقة، حالة الاشتراك، تاريخ البداية، تاريخ الانتهاء، الهاتف، IP، MAC. هذه البيانات لا تكتب يدويًا عند الربط الحقيقي.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+      ])),
+    ]));
   }
 }
 

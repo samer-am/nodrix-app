@@ -118,4 +118,13 @@ class ApiService {
     final response = await http.get(_uri('/api/app-version'));
     return _readMap(response);
   }
+
+  Future<Map<String, dynamic>> getSasStatus() async {
+    final response = await http.get(_uri('/api/sas/status'));
+    return _readMap(response);
+  }
+
+  Future<Map<String, dynamic>> syncSas() async {
+    return _postMap('/api/sas/sync', {});
+  }
 }
