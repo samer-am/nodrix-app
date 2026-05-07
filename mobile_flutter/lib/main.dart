@@ -460,61 +460,79 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
   }
 
   Future<Map<String, dynamic>> syncUsersInsideWebView(String token) async {
-    const js = r'''
+    Future<Map<String, dynamic>> fetchPage(int page, int count) async {
+      final encrypted = await widget.api.encryptSasUserIndexPayload(page: page, count: count);
+      if (encrypted['ok'] != true || asText(encrypted['payload']).isEmpty) {
+        return {'ok': false, 'message': asText(encrypted['message'], 'فشل تجهيز طلب SAS المشفر من السيرفر')};
+      }
+      final payloadText = jsonEncode(encrypted['payload']);
+      final js = '''
 (async function(){
-  const key = 'abcdefghijuklmno0123456789012345';
-  const token = localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || '';
+  const token = localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || ${jsonEncode(token)};
+  const encryptedPayload = $payloadText;
   if (!token || token.length < 20) return JSON.stringify({ok:false,message:'لم يتم العثور على جلسة SAS داخل المتصفح'});
-  if (!window.CryptoJS || !CryptoJS.AES) return JSON.stringify({ok:false,message:'مكتبة التشفير CryptoJS غير جاهزة داخل صفحة SAS'});
-  function encryptPayload(data){ return CryptoJS.AES.encrypt(JSON.stringify(data), key).toString(); }
-  function payload(page, count){
-    return {
-      page: page,
-      count: count,
-      rowsPerPage: count,
-      search: '',
-      sortBy: 'username',
-      direction: 'asc',
-      columns: ['id','username','firstname','lastname','expiration','parent_username','name','loan_balance','traffic','remaining_days']
-    };
-  }
-  async function fetchPage(page, count){
-    const res = await fetch('/admin/api/index.php/api/index/user?page=' + page, {
+  try {
+    const res = await fetch('/admin/api/index.php/api/index/user?page=$page', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/plain, */*',
         'authorization': 'Bearer ' + token
       },
-      body: JSON.stringify({ payload: encryptPayload(payload(page, count)) })
+      body: JSON.stringify({ payload: encryptedPayload })
     });
     const text = await res.text();
-    if (!res.ok) return {ok:false,status:res.status,body:text.slice(0,700)};
-    try { return {ok:true,data: JSON.parse(text)}; } catch(e) { return {ok:false,status:res.status,body:text.slice(0,700)}; }
-  }
-  try {
-    const count = 100;
-    const first = await fetchPage(1, count);
-    if (!first.ok) return JSON.stringify({ok:false,message:'فشل جلب الصفحة الأولى من SAS',status:first.status,body:first.body});
-    let users = Array.isArray(first.data.data) ? first.data.data : [];
-    const lastPage = Math.min(Number(first.data.last_page || 1), 200);
-    const total = Number(first.data.total || users.length);
-    for (let page = 2; page <= lastPage; page++) {
-      const next = await fetchPage(page, count);
-      if (!next.ok) return JSON.stringify({ok:false,message:'فشل جلب صفحة SAS رقم ' + page,status:next.status,body:next.body,users:users});
-      users = users.concat(Array.isArray(next.data.data) ? next.data.data : []);
-    }
-    return JSON.stringify({ok:true,total:total,pages:lastPage,users:users});
+    if (!res.ok) return JSON.stringify({ok:false,status:res.status,message:'SAS رفض طلب المستخدمين HTTP ' + res.status,body:text.slice(0,900)});
+    try { return JSON.stringify({ok:true,data: JSON.parse(text)}); }
+    catch(e) { return JSON.stringify({ok:false,status:res.status,message:'استجابة SAS ليست JSON',body:text.slice(0,900)}); }
   } catch(e) {
     return JSON.stringify({ok:false,message:String(e && e.message ? e.message : e)});
   }
 })()
 ''';
-    final result = await controller.runJavaScriptReturningResult(js);
-    final text = _cleanJsResult(result);
-    final decoded = jsonDecode(text);
-    if (decoded is Map<String, dynamic>) return decoded;
-    return {'ok': false, 'message': 'استجابة مزامنة SAS غير صحيحة'};
+      final result = await controller.runJavaScriptReturningResult(js);
+      final text = _cleanJsResult(result);
+      try {
+        final decoded = jsonDecode(text);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is String) {
+          final decoded2 = jsonDecode(decoded);
+          if (decoded2 is Map<String, dynamic>) return decoded2;
+        }
+      } catch (_) {
+        return {'ok': false, 'message': 'تعذر قراءة نتيجة WebView', 'body': text.length > 900 ? text.substring(0, 900) : text};
+      }
+      return {'ok': false, 'message': 'استجابة WebView غير صحيحة'};
+    }
+
+    try {
+      const count = 100;
+      final first = await fetchPage(1, count);
+      if (first['ok'] != true) return first;
+      final data = first['data'];
+      if (data is! Map) return {'ok': false, 'message': 'بنية بيانات SAS غير صحيحة في الصفحة الأولى'};
+      List<dynamic> users = (data['data'] is List) ? List<dynamic>.from(data['data'] as List) : <dynamic>[];
+      final lastPageRaw = data['last_page'];
+      final totalRaw = data['total'];
+      final lastPage = (lastPageRaw is num ? lastPageRaw.toInt() : int.tryParse('$lastPageRaw') ?? 1).clamp(1, 200);
+      final total = totalRaw is num ? totalRaw.toInt() : int.tryParse('$totalRaw') ?? users.length;
+      for (int page = 2; page <= lastPage; page++) {
+        final next = await fetchPage(page, count);
+        if (next['ok'] != true) {
+          next['users'] = users;
+          next['message'] = '${asText(next['message'], 'فشل جلب صفحة من SAS')} - الصفحة $page';
+          return next;
+        }
+        final nextData = next['data'];
+        if (nextData is Map && nextData['data'] is List) {
+          users.addAll(List<dynamic>.from(nextData['data'] as List));
+        }
+      }
+      return {'ok': true, 'total': total, 'pages': lastPage, 'users': users};
+    } catch (e) {
+      return {'ok': false, 'message': 'فشل جلب المشتركين من WebView: $e'};
+    }
   }
 
   Future<void> captureToken() async {

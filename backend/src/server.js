@@ -988,6 +988,17 @@ app.get('/api/sas/diagnose', async (req, res) => {
   }
 });
 
+
+app.post('/api/sas/encrypt-user-index-payload', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.body?.page || 1));
+    const count = Math.min(200, Math.max(1, Number(req.body?.count || 100)));
+    res.json({ ok: true, payload: cryptoJsAesEncrypt(userIndexPayload(page, count)), page, count });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
 app.post('/api/sas/import-users', async (req, res) => {
   try {
     const result = await importSasUsersFromClient(req.body?.users);

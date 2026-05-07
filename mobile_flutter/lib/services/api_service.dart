@@ -136,6 +136,10 @@ class ApiService {
     return _postMap('/api/sas/import-users', {'users': users});
   }
 
+  Future<Map<String, dynamic>> encryptSasUserIndexPayload({required int page, int count = 100}) async {
+    return _postMap('/api/sas/encrypt-user-index-payload', {'page': page, 'count': count});
+  }
+
   Future<Map<String, dynamic>> logoutSasSession() async {
     return _postMap('/api/sas/logout', {});
   }
