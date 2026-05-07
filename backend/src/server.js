@@ -103,6 +103,11 @@ function uniqueFiBrowserHeaders(baseUrl, token = '') {
     Referer: `${normalized}/`,
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': 'Windows',
   };
   if (token) headers.authorization = `Bearer ${token}`;
   return headers;
@@ -146,22 +151,31 @@ function safeSasError(prefix, error) {
   return `${prefix}: ${status || ''} ${String(body).slice(0, 220)}`.trim();
 }
 
-async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
-  const baseUrl = normalizeBaseUrl(sasUrl);
-  if (!baseUrl || !username || !password) return { ok: false, message: 'الرابط واليوزر والباسورد مطلوبة' };
-  let resources = null;
+async function uniqueFiLoadPublicConfig(baseUrl) {
   try {
     const r = await fetch(`${uniqueFiApiBase(baseUrl)}resources/login`, { headers: uniqueFiBrowserHeaders(baseUrl) });
     const text = await r.text();
-    try { resources = text ? JSON.parse(text) : null; } catch (_) { resources = { raw: text }; }
-    if (!r.ok) return { ok: false, message: `فشل تحميل إعدادات SAS: HTTP ${r.status}` };
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { data = { raw: text }; }
+    return { ok: r.ok, status: r.status, data, blocked: !r.ok };
   } catch (error) {
-    return { ok: false, message: `فشل الوصول إلى رابط SAS: ${error.message}` };
+    return { ok: false, status: null, error: error.message, blocked: true };
   }
+}
+
+async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
+  const baseUrl = normalizeBaseUrl(sasUrl);
+  if (!baseUrl || !username || !password) return { ok: false, message: 'الرابط واليوزر والباسورد مطلوبة' };
+
+  // Do not fail when resources/login is blocked by Cloudflare.
+  // The SAS frontend only uses it to read public UI settings; the real login is POST /login.
+  const resources = await uniqueFiLoadPublicConfig(baseUrl);
+  const resolvedLanguage = language || resources?.data?.data?.site_language || 'en';
+
   const loginPayload = {
     username,
     password,
-    language: language || resources?.data?.site_language || 'en',
+    language: resolvedLanguage,
     otp: null,
     captcha_text: null,
     session_id: randomUUID(),
@@ -170,11 +184,31 @@ async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
     const login = await uniqueFiEncryptedPost(baseUrl, 'login', loginPayload);
     const token = extractSasToken(login);
     if (!token || login.status !== 200) {
-      return { ok: false, message: login?.message || 'فشل تسجيل الدخول إلى SAS', responseStatus: login?.status, phase: 'login' };
+      return {
+        ok: false,
+        message: login?.message || 'فشل تسجيل الدخول إلى SAS',
+        responseStatus: login?.status,
+        phase: 'login',
+        resourcesStatus: resources?.status || null,
+      };
     }
-    return { ok: true, token, site: resources?.data?.site?.title || 'SAS Radius', language: loginPayload.language };
+    return {
+      ok: true,
+      token,
+      site: resources?.data?.data?.site?.title || 'SAS Radius',
+      language: loginPayload.language,
+      resourcesStatus: resources?.status || null,
+      resourcesBlocked: Boolean(resources?.blocked),
+    };
   } catch (error) {
-    return { ok: false, message: safeSasError('فشل تسجيل الدخول إلى SAS', error), responseStatus: error.status, phase: 'login' };
+    return {
+      ok: false,
+      message: safeSasError('فشل تسجيل الدخول إلى SAS', error),
+      responseStatus: error.status,
+      phase: 'login',
+      resourcesStatus: resources?.status || null,
+      resourcesBlocked: Boolean(resources?.blocked),
+    };
   }
 }
 
@@ -841,7 +875,7 @@ app.get('/api/sas/diagnose', async (req, res) => {
     }
     const login = await uniqueFiLogin(config);
     if (!login.ok) {
-      return res.status(200).json({ ok: false, phase: login.phase || 'login', message: login.message, status: login.responseStatus || null });
+      return res.status(200).json({ ok: false, phase: login.phase || 'login', message: login.message, status: login.responseStatus || null, resourcesStatus: login.resourcesStatus || null, resourcesBlocked: Boolean(login.resourcesBlocked) });
     }
     try {
       const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user?page=1', userIndexPayload(1), login.token);
