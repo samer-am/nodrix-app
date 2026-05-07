@@ -132,6 +132,10 @@ class ApiService {
     return _postMap('/api/sas/save-token', {'token': token});
   }
 
+  Future<Map<String, dynamic>> importSasUsers({required List<dynamic> users}) async {
+    return _postMap('/api/sas/import-users', {'users': users});
+  }
+
   Future<Map<String, dynamic>> logoutSasSession() async {
     return _postMap('/api/sas/logout', {});
   }

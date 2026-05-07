@@ -31,7 +31,7 @@ const pool = databaseUrl
   : null;
 
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
 app.use('/downloads', express.static('public/downloads'));
 
 function id(prefix) {
@@ -845,6 +845,24 @@ async function syncCustomersFromSas() {
   };
 }
 
+async function importSasUsersFromClient(rawUsers) {
+  if (!pool) return { ok: false, message: 'PostgreSQL غير مفعل' };
+  const config = await getSavedSasConfig();
+  if (!config?.panelId) return { ok: false, message: 'احفظ لوحة SAS أولًا قبل الاستيراد' };
+  const users = Array.isArray(rawUsers) ? rawUsers : [];
+  const items = users.map(mapUniqueFiUser).filter((u) => u.sasId);
+  const saved = await upsertSasCustomers(items, config.panelId || null);
+  return {
+    ok: true,
+    source: 'uniquefi-webview',
+    created: saved.created,
+    updated: saved.updated,
+    total: items.length,
+    remoteTotal: users.length,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'Nodrix Backend', database: pool ? 'postgresql' : 'mock' });
 });
@@ -967,6 +985,15 @@ app.get('/api/sas/diagnose', async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ ok: false, phase: 'server', message: error.message });
+  }
+});
+
+app.post('/api/sas/import-users', async (req, res) => {
+  try {
+    const result = await importSasUsersFromClient(req.body?.users);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
   }
 });
 

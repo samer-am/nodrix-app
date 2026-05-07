@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -448,10 +449,72 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
   String _cleanJsResult(Object? result) {
     var text = result?.toString() ?? '';
     if (text == 'null' || text == 'undefined') return '';
+    try {
+      final decoded = jsonDecode(text);
+      if (decoded is String) return decoded.trim();
+    } catch (_) {}
     if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
       text = text.substring(1, text.length - 1).replaceAll(r'\"', '"');
     }
     return text.trim();
+  }
+
+  Future<Map<String, dynamic>> syncUsersInsideWebView(String token) async {
+    const js = r'''
+(async function(){
+  const key = 'abcdefghijuklmno0123456789012345';
+  const token = localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || '';
+  if (!token || token.length < 20) return JSON.stringify({ok:false,message:'لم يتم العثور على جلسة SAS داخل المتصفح'});
+  if (!window.CryptoJS || !CryptoJS.AES) return JSON.stringify({ok:false,message:'مكتبة التشفير CryptoJS غير جاهزة داخل صفحة SAS'});
+  function encryptPayload(data){ return CryptoJS.AES.encrypt(JSON.stringify(data), key).toString(); }
+  function payload(page, count){
+    return {
+      page: page,
+      count: count,
+      rowsPerPage: count,
+      search: '',
+      sortBy: 'username',
+      direction: 'asc',
+      columns: ['id','username','firstname','lastname','expiration','parent_username','name','loan_balance','traffic','remaining_days']
+    };
+  }
+  async function fetchPage(page, count){
+    const res = await fetch('/admin/api/index.php/api/index/user?page=' + page, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ payload: encryptPayload(payload(page, count)) })
+    });
+    const text = await res.text();
+    if (!res.ok) return {ok:false,status:res.status,body:text.slice(0,700)};
+    try { return {ok:true,data: JSON.parse(text)}; } catch(e) { return {ok:false,status:res.status,body:text.slice(0,700)}; }
+  }
+  try {
+    const count = 100;
+    const first = await fetchPage(1, count);
+    if (!first.ok) return JSON.stringify({ok:false,message:'فشل جلب الصفحة الأولى من SAS',status:first.status,body:first.body});
+    let users = Array.isArray(first.data.data) ? first.data.data : [];
+    const lastPage = Math.min(Number(first.data.last_page || 1), 200);
+    const total = Number(first.data.total || users.length);
+    for (let page = 2; page <= lastPage; page++) {
+      const next = await fetchPage(page, count);
+      if (!next.ok) return JSON.stringify({ok:false,message:'فشل جلب صفحة SAS رقم ' + page,status:next.status,body:next.body,users:users});
+      users = users.concat(Array.isArray(next.data.data) ? next.data.data : []);
+    }
+    return JSON.stringify({ok:true,total:total,pages:lastPage,users:users});
+  } catch(e) {
+    return JSON.stringify({ok:false,message:String(e && e.message ? e.message : e)});
+  }
+})()
+''';
+    final result = await controller.runJavaScriptReturningResult(js);
+    final text = _cleanJsResult(result);
+    final decoded = jsonDecode(text);
+    if (decoded is Map<String, dynamic>) return decoded;
+    return {'ok': false, 'message': 'استجابة مزامنة SAS غير صحيحة'};
   }
 
   Future<void> captureToken() async {
@@ -460,17 +523,31 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
       final result = await controller.runJavaScriptReturningResult("localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || ''");
       final token = _cleanJsResult(result);
       if (token.length < 20) return;
-      setState(() { saving = true; message = 'تم العثور على جلسة SAS. جاري الحفظ...'; });
+      setState(() { saving = true; message = 'تم العثور على جلسة SAS. جاري حفظ الجلسة وجلب المشتركين من داخل المتصفح...'; });
       final saved = await widget.api.saveSasToken(token: token);
       if (!mounted) return;
-      if (saved['ok'] == true) {
-        setState(() => message = 'تم حفظ جلسة SAS بنجاح.');
-        Navigator.pop(context, true);
-      } else {
+      if (saved['ok'] != true) {
         setState(() { saving = false; message = asText(saved['message'], 'تعذر حفظ جلسة SAS'); });
+        return;
       }
-    } catch (_) {
-      // بعض صفحات SAS لا تسمح بالقراءة فورًا؛ سيجرب المستخدم زر الالتقاط اليدوي.
+
+      final fetched = await syncUsersInsideWebView(token);
+      if (!mounted) return;
+      if (fetched['ok'] == true) {
+        final users = (fetched['users'] is List) ? fetched['users'] as List<dynamic> : <dynamic>[];
+        final imported = await widget.api.importSasUsers(users: users);
+        if (!mounted) return;
+        if (imported['ok'] == true) {
+          setState(() => message = 'تم حفظ الجلسة وجلب ${imported['total'] ?? users.length} مشترك من SAS.');
+          Navigator.pop(context, true);
+        } else {
+          setState(() { saving = false; message = asText(imported['message'], 'تم حفظ الجلسة لكن فشل حفظ المشتركين في Nodrix'); });
+        }
+      } else {
+        setState(() { saving = false; message = asText(fetched['message'], 'تم حفظ الجلسة لكن فشل جلب المشتركين من المتصفح'); });
+      }
+    } catch (e) {
+      if (mounted) setState(() { saving = false; message = 'تعذر التقاط/مزامنة جلسة SAS: $e'; });
     }
   }
 
@@ -1241,14 +1318,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
   Future<void> sync() async {
     setState(() { loading = true; message = ''; });
     try {
-      final result = await widget.api.syncSas();
-      if (!mounted) return;
-      setState(() => message = result['ok'] == true
-          ? 'تمت المزامنة: جديد ${result['created'] ?? 0} / تحديث ${result['updated'] ?? 0} / المجموع ${result['total'] ?? 0}'
-          : asText(result['message'], 'فشلت المزامنة'));
-      await loadStatus();
-    } catch (e) {
-      if (mounted) setState(() => message = 'خطأ: $e');
+      await openBrowserLogin();
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -1278,7 +1348,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
     final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => SasWebLoginPage(api: widget.api, sasUrl: url)));
     if (!mounted) return;
     if (ok == true) {
-      setState(() => message = 'تم حفظ جلسة SAS. يمكنك المزامنة الآن.');
+      setState(() => message = 'تم حفظ الجلسة وجلب البيانات من داخل المتصفح.');
       await loadStatus();
     }
   }
@@ -1317,7 +1387,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
         if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(message, style: const TextStyle(color: AppColors.warning))),
         const SizedBox(height: 14),
         Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: loading ? null : sync, icon: const Icon(Icons.sync_rounded, size: 18), label: Text(loading ? 'جاري المزامنة...' : 'مزامنة الآن'))),
+          Expanded(child: FilledButton.icon(onPressed: loading ? null : sync, icon: const Icon(Icons.sync_rounded, size: 18), label: Text(loading ? 'جاري المزامنة...' : 'مزامنة عبر المتصفح'))),
           const SizedBox(width: 10),
           Expanded(child: OutlinedButton.icon(onPressed: clearing ? null : clearMock, icon: const Icon(Icons.cleaning_services_rounded, size: 18), label: Text(clearing ? 'تنظيف...' : 'حذف الوهمي'))),
         ]),
@@ -1332,7 +1402,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
       const AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('طريقة العمل', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
         SizedBox(height: 10),
-        Text('إذا منع Cloudflare تسجيل الدخول المباشر من السيرفر، استخدم زر دخول عبر المتصفح. بعدها Nodrix يحفظ جلسة SAS ويحدث البيانات عند فتح التطبيق وكل 30 ثانية فقط أثناء بقاء التطبيق مفتوحًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        Text('بسبب Cloudflare تتم المزامنة من داخل المتصفح المدمج نفسه ثم تُرسل النتائج إلى Nodrix. زر مزامنة عبر المتصفح يفتح اللوحة، وإذا كانت الجلسة محفوظة يجلب المشتركين مباشرة.', style: TextStyle(color: AppColors.muted, height: 1.45)),
       ])),
     ]));
   }
