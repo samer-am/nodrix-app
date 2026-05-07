@@ -1,0 +1,40 @@
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# Android/iOS generated files
+mobile_flutter/android/
+mobile_flutter/ios/
+mobile_flutter/linux/
+mobile_flutter/macos/
+mobile_flutter/windows/
+mobile_flutter/web/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+*.apk
+
+*.aab
+mobile_flutter/build/
+mobile_flutter/.dart_tool/
+mobile_flutter/android/.gradle/
+backend/node_modules/
