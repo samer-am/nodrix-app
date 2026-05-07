@@ -127,4 +127,8 @@ class ApiService {
   Future<Map<String, dynamic>> syncSas() async {
     return _postMap('/api/sas/sync', {});
   }
+
+  Future<Map<String, dynamic>> clearMockData() async {
+    return _postMap('/api/sas/clear-mock-data', {});
+  }
 }

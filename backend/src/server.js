@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pg from 'pg';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, randomBytes, createCipheriv, createDecipheriv } from 'crypto';
 import { createAdapter } from './adapters/index.js';
 
 const { Pool } = pg;
@@ -11,8 +11,8 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'https://nodrix-app-production.up.railway.app';
-const sasSyncMode = process.env.SAS_SYNC_MODE || 'mock';
 const defaultCompanyId = process.env.DEFAULT_COMPANY_ID || 'demo-company';
+const UNIQUEFI_AES_PASSPHRASE = 'abcdefghijuklmno0123456789012345';
 const databaseUrl = process.env.DATABASE_URL || '';
 
 let savedConfig = null;
@@ -36,6 +36,175 @@ app.use('/downloads', express.static('public/downloads'));
 
 function id(prefix) {
   return `${prefix}_${randomUUID().replaceAll('-', '').slice(0, 18)}`;
+}
+
+
+function normalizeBaseUrl(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+  return raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+}
+
+function uniqueFiApiBase(baseUrl) {
+  return `${normalizeBaseUrl(baseUrl)}/admin/api/index.php/api/`;
+}
+
+function evpBytesToKey(password, salt, keyLen = 32, ivLen = 16) {
+  let data = Buffer.alloc(0);
+  let prev = Buffer.alloc(0);
+  while (data.length < keyLen + ivLen) {
+    prev = createHash('md5').update(Buffer.concat([prev, Buffer.from(password, 'utf8'), salt])).digest();
+    data = Buffer.concat([data, prev]);
+  }
+  return { key: data.subarray(0, keyLen), iv: data.subarray(keyLen, keyLen + ivLen) };
+}
+
+function cryptoJsAesEncrypt(obj) {
+  const salt = randomBytes(8);
+  const { key, iv } = evpBytesToKey(UNIQUEFI_AES_PASSPHRASE, salt);
+  const cipher = createCipheriv('aes-256-cbc', key, iv);
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(obj), 'utf8'), cipher.final()]);
+  return Buffer.concat([Buffer.from('Salted__'), salt, encrypted]).toString('base64');
+}
+
+function appSecretKey() {
+  return createHash('sha256').update(process.env.APP_SECRET || databaseUrl || 'nodrix-local-secret').digest();
+}
+
+function encryptSecret(value) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', appSecretKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(String(value || ''), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString('base64');
+}
+
+function decryptSecret(value) {
+  if (!value) return '';
+  try {
+    const raw = Buffer.from(value, 'base64');
+    const iv = raw.subarray(0, 12);
+    const tag = raw.subarray(12, 28);
+    const encrypted = raw.subarray(28);
+    const decipher = createDecipheriv('aes-256-gcm', appSecretKey(), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+  } catch (_) {
+    return '';
+  }
+}
+
+async function postJson(url, body, headers = {}) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/plain, */*', ...headers },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
+  if (!response.ok) {
+    const msg = data?.message || data?.error || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function uniqueFiEncryptedPost(baseUrl, endpoint, payload, token = '') {
+  const url = `${uniqueFiApiBase(baseUrl)}${endpoint}`;
+  const headers = token ? { authorization: `Bearer ${token}` } : {};
+  return postJson(url, { payload: cryptoJsAesEncrypt(payload) }, headers);
+}
+
+function extractSasToken(data) {
+  return data?.token || data?.access_token || data?.data?.token || data?.data?.access_token || '';
+}
+
+async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
+  const baseUrl = normalizeBaseUrl(sasUrl);
+  if (!baseUrl || !username || !password) return { ok: false, message: 'الرابط واليوزر والباسورد مطلوبة' };
+  const resources = await fetch(`${uniqueFiApiBase(baseUrl)}resources/login`).then(r => r.json()).catch(() => null);
+  const loginPayload = {
+    username,
+    password,
+    language: language || resources?.data?.site_language || 'en',
+    otp: null,
+    captcha_text: null,
+    session_id: randomUUID(),
+  };
+  const login = await uniqueFiEncryptedPost(baseUrl, 'login', loginPayload);
+  const token = extractSasToken(login);
+  if (!token || login.status !== 200) {
+    return { ok: false, message: login?.message || 'فشل تسجيل الدخول إلى SAS', responseStatus: login?.status };
+  }
+  return { ok: true, token, site: resources?.data?.site?.title || 'SAS Radius', language: loginPayload.language };
+}
+
+function userIndexPayload(page = 1, rowsPerPage = 100) {
+  return {
+    page,
+    count: rowsPerPage,
+    rowsPerPage,
+    search: '',
+    sortBy: 'username',
+    direction: 'asc',
+    columns: ['id', 'username', 'firstname', 'lastname', 'expiration', 'parent_username', 'name', 'loan_balance', 'traffic', 'remaining_days'],
+  };
+}
+
+async function uniqueFiFetchUsers(config) {
+  const login = await uniqueFiLogin(config);
+  if (!login.ok) return { ok: false, message: login.message };
+  const token = login.token;
+  const all = [];
+  let lastPage = 1;
+  let total = 0;
+  for (let page = 1; page <= lastPage && page <= 200; page++) {
+    const response = await uniqueFiEncryptedPost(config.sasUrl, `index/user?page=${page}`, userIndexPayload(page), token);
+    const rows = Array.isArray(response?.data) ? response.data : [];
+    all.push(...rows);
+    lastPage = Number(response?.last_page || lastPage || 1);
+    total = Number(response?.total || total || all.length);
+    if (!response?.next_page_url && page >= lastPage) break;
+  }
+  return { ok: true, users: all, total, pages: lastPage, syncedAt: new Date().toISOString() };
+}
+
+function bytesToGb(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round((n / 1024 / 1024 / 1024) * 100) / 100;
+}
+
+function mapUniqueFiStatus(user) {
+  if (Number(user?.enabled) !== 1) return 'paused';
+  if (user?.status?.expiration === false) return 'expired';
+  if (Number(user?.remaining_days) <= 0) return 'expired';
+  if (Number(user?.remaining_days) <= 3) return 'expires_soon';
+  return 'active';
+}
+
+function mapUniqueFiUser(user) {
+  const first = String(user?.firstname || '').trim();
+  const last = String(user?.lastname || '').trim();
+  const fullName = `${first} ${last}`.trim() || String(user?.username || 'مشترك SAS');
+  const traffic = user?.daily_traffic_details?.traffic || 0;
+  return {
+    sasId: String(user?.id || user?.username || ''),
+    sasUsername: String(user?.username || ''),
+    name: fullName,
+    phone: user?.phone || '',
+    package: user?.profile_details?.name || '',
+    status: mapUniqueFiStatus(user),
+    expiresAt: cleanDate(user?.expiration),
+    lastOnline: user?.last_online || null,
+    parentUsername: user?.parent_username || '',
+    debtDays: toInt(user?.debt_days),
+    remainingDays: toInt(user?.remaining_days),
+    onlineStatus: toInt(user?.online_status),
+    dailyTrafficGb: bytesToGb(traffic),
+    staticIp: user?.static_ip || '',
+  };
 }
 
 function toInt(value, fallback = 0) {
@@ -108,6 +277,11 @@ function normalizeCustomer(row) {
     sasIp: row.sas_ip || '',
     sasMac: row.sas_mac || '',
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : '',
+    sasRemainingDays: row.sas_remaining_days ?? null,
+    sasOnlineStatus: row.sas_online_status ?? null,
+    sasLastOnline: row.sas_last_online || '',
+    sasDailyTrafficGb: row.sas_daily_traffic_gb ?? null,
+    sasParentUsername: row.sas_parent_username || '',
   };
 }
 
@@ -224,29 +398,30 @@ async function migrateDatabase() {
     [defaultCompanyId, 'Nodrix Demo']
   );
 
-  const customers = await pool.query('SELECT COUNT(*)::int AS count FROM customers WHERE company_id = $1', [defaultCompanyId]);
-  if (customers.rows[0].count === 0) {
-    await pool.query(
-      `INSERT INTO packages (id, company_id, name, speed, price, days)
-       VALUES ($1,$2,'باقة منزلي','25 Mbps',25000,30), ($3,$2,'باقة أعمال','50 Mbps',45000,30)
-       ON CONFLICT (id) DO NOTHING`,
-      [id('pkg'), defaultCompanyId, id('pkg')]
-    );
+  await pool.query(`
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_remaining_days INTEGER;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_online_status INTEGER;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_last_online TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_daily_traffic_gb NUMERIC;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_parent_username TEXT;
+  `);
 
-    const seed = [
-      ['cus_ali', 'علي حسن', '07700000001', 'باقة منزلي', '25 Mbps', 25000, addDays(21), 'برج الكرادة', 'Sector A', 0],
-      ['cus_zainab', 'زينب محمد', '07700000002', 'باقة أعمال', '50 Mbps', 45000, addDays(2), 'برج المنصور', 'Sector B', 15000],
-      ['cus_omar', 'عمر خالد', '07700000003', 'باقة منزلي', '25 Mbps', 25000, addDays(-4), 'برج الدورة', 'Sector C', 25000],
-    ];
-    for (const c of seed) {
-      await pool.query(
-        `INSERT INTO customers (id, company_id, name, phone, package_name, speed, price, start_at, expires_at, tower, sector, debt)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (id) DO NOTHING`,
-        [c[0], defaultCompanyId, c[1], c[2], c[3], c[4], c[5], todayIso(), c[6], c[7], c[8], c[9]]
-      );
-    }
-  }
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sas_panels (
+      id TEXT PRIMARY KEY,
+      company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL DEFAULT 'uniquefi',
+      name TEXT NOT NULL DEFAULT 'SAS Radius',
+      base_url TEXT NOT NULL,
+      username TEXT NOT NULL,
+      password_enc TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      last_test_at TIMESTAMPTZ,
+      last_synced_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 }
 
 function getAdapterOrError(res) {
@@ -407,55 +582,85 @@ async function dbAddPayment(customerId, body) {
 }
 
 
-function mockSasCustomers() {
-  return [
-    {
-      sasId: 'sas_1001', sasUsername: 'ali.home', name: 'علي حسن', phone: '07700000001', package: 'Home 25M', status: 'active',
-      startAt: addDays(-9), expiresAt: addDays(21), ip: '10.10.1.21', mac: 'AA:BB:CC:00:10:01', price: 25000,
-    },
-    {
-      sasId: 'sas_1002', sasUsername: 'zainab.biz', name: 'زينب محمد', phone: '07700000002', package: 'Business 50M', status: 'active',
-      startAt: addDays(-28), expiresAt: addDays(2), ip: '10.10.1.22', mac: 'AA:BB:CC:00:10:02', price: 45000,
-    },
-    {
-      sasId: 'sas_1003', sasUsername: 'omar.home', name: 'عمر خالد', phone: '07700000003', package: 'Home 25M', status: 'expired',
-      startAt: addDays(-40), expiresAt: addDays(-4), ip: '10.10.1.23', mac: 'AA:BB:CC:00:10:03', price: 25000,
-    },
-    {
-      sasId: 'sas_1004', sasUsername: 'hussein.plus', name: 'حسين سعيد', phone: '07700000004', package: 'Plus 35M', status: 'active',
-      startAt: addDays(-4), expiresAt: addDays(26), ip: '10.10.1.24', mac: 'AA:BB:CC:00:10:04', price: 35000,
-    },
-  ];
+async function getSavedSasConfig() {
+  if (!pool) return savedConfig;
+  const result = await pool.query(
+    `SELECT * FROM sas_panels WHERE company_id=$1 AND active=TRUE ORDER BY updated_at DESC LIMIT 1`,
+    [defaultCompanyId]
+  );
+  const panel = result.rows[0];
+  if (!panel) return savedConfig;
+  return {
+    type: panel.provider,
+    sasUrl: panel.base_url,
+    username: panel.username,
+    password: decryptSecret(panel.password_enc),
+    panelId: panel.id,
+    name: panel.name,
+  };
 }
 
-async function syncCustomersFromSas() {
-  if (!pool) return { ok: false, message: 'PostgreSQL غير مفعل' };
-  const items = mockSasCustomers();
+async function saveSasPanel({ type, sasUrl, username, password, name }) {
+  if (!pool) {
+    savedConfig = { type, sasUrl: normalizeBaseUrl(sasUrl), username, password, name };
+    return savedConfig;
+  }
+  const existing = await pool.query(`SELECT id FROM sas_panels WHERE company_id=$1 AND active=TRUE ORDER BY updated_at DESC LIMIT 1`, [defaultCompanyId]);
+  const panelId = existing.rows[0]?.id || id('panel');
+  await pool.query(`UPDATE sas_panels SET active=FALSE WHERE company_id=$1`, [defaultCompanyId]);
+  await pool.query(
+    `INSERT INTO sas_panels (id, company_id, provider, name, base_url, username, password_enc, active, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE,NOW())
+     ON CONFLICT (id) DO UPDATE SET provider=$3, name=$4, base_url=$5, username=$6, password_enc=$7, active=TRUE, updated_at=NOW()`,
+    [panelId, defaultCompanyId, type || 'uniquefi', name || 'SAS Radius', normalizeBaseUrl(sasUrl), username, encryptSecret(password)]
+  );
+  return { panelId, type: type || 'uniquefi', sasUrl: normalizeBaseUrl(sasUrl), username, name: name || 'SAS Radius' };
+}
+
+async function clearMockData() {
+  if (!pool) return { ok: true, deleted: 0 };
+  const result = await pool.query(
+    `DELETE FROM customers
+     WHERE company_id=$1 AND (
+       source='sas' OR id IN ('cus_ali','cus_zainab','cus_omar')
+       OR sas_id LIKE 'sas_%'
+       OR name IN ('علي حسن','زينب محمد','عمر خالد','حسين سعيد')
+     )`,
+    [defaultCompanyId]
+  );
+  return { ok: true, deleted: result.rowCount };
+}
+
+async function upsertSasCustomers(items, panelId = null) {
   let created = 0;
   let updated = 0;
   for (const item of items) {
     const customerId = id('cus');
     const result = await pool.query(
       `INSERT INTO customers (
-        id, company_id, name, phone, package_name, price, start_at, expires_at, status,
-        sas_id, sas_username, sas_package, sas_status, sas_start_date, sas_expiry_date, sas_phone, sas_ip, sas_mac, source, last_synced_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'sas',NOW())
+        id, company_id, name, phone, package_name, price, start_at, expires_at, status, debt,
+        sas_id, sas_username, sas_package, sas_status, sas_start_date, sas_expiry_date, sas_phone, sas_ip, sas_mac,
+        sas_remaining_days, sas_online_status, sas_last_online, sas_daily_traffic_gb, sas_parent_username,
+        source, last_synced_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$15,$16,'',$17,$18,$19,$20,$21,'sas',NOW())
       ON CONFLICT (company_id, sas_id) WHERE sas_id IS NOT NULL DO UPDATE SET
         name=EXCLUDED.name,
         phone=EXCLUDED.phone,
         package_name=EXCLUDED.package_name,
-        price=EXCLUDED.price,
-        start_at=EXCLUDED.start_at,
         expires_at=EXCLUDED.expires_at,
         status=EXCLUDED.status,
+        debt=EXCLUDED.debt,
         sas_username=EXCLUDED.sas_username,
         sas_package=EXCLUDED.sas_package,
         sas_status=EXCLUDED.sas_status,
-        sas_start_date=EXCLUDED.sas_start_date,
         sas_expiry_date=EXCLUDED.sas_expiry_date,
         sas_phone=EXCLUDED.sas_phone,
         sas_ip=EXCLUDED.sas_ip,
-        sas_mac=EXCLUDED.sas_mac,
+        sas_remaining_days=EXCLUDED.sas_remaining_days,
+        sas_online_status=EXCLUDED.sas_online_status,
+        sas_last_online=EXCLUDED.sas_last_online,
+        sas_daily_traffic_gb=EXCLUDED.sas_daily_traffic_gb,
+        sas_parent_username=EXCLUDED.sas_parent_username,
         source='sas',
         last_synced_at=NOW(),
         updated_at=NOW()
@@ -466,25 +671,55 @@ async function syncCustomersFromSas() {
         item.name,
         item.phone || '',
         item.package || '',
-        toInt(item.price),
-        cleanDate(item.startAt),
+        0,
         cleanDate(item.expiresAt),
         item.status || 'active',
+        toInt(item.debtDays),
         item.sasId,
         item.sasUsername || '',
         item.package || '',
         item.status || '',
-        cleanDate(item.startAt),
         cleanDate(item.expiresAt),
         item.phone || '',
-        item.ip || '',
-        item.mac || '',
+        item.staticIp || '',
+        toInt(item.remainingDays),
+        toInt(item.onlineStatus),
+        item.lastOnline || '',
+        item.dailyTrafficGb || 0,
+        item.parentUsername || '',
       ]
     );
     if (result.rows[0]?.inserted) created += 1;
     else updated += 1;
   }
-  return { ok: true, source: sasSyncMode, created, updated, total: items.length, syncedAt: new Date().toISOString() };
+  if (panelId) await pool.query(`UPDATE sas_panels SET last_synced_at=NOW(), updated_at=NOW() WHERE id=$1`, [panelId]);
+  return { created, updated };
+}
+
+async function syncCustomersFromSas() {
+  if (!pool) return { ok: false, message: 'PostgreSQL غير مفعل' };
+  const config = await getSavedSasConfig();
+  if (!config || !config.sasUrl || !config.username || !config.password) {
+    return { ok: false, message: 'أضف لوحة SAS أولًا من صفحة لوحات الساس' };
+  }
+  const provider = config.type || 'uniquefi';
+  if (!['uniquefi', 'sas_radius', 'sas'].includes(provider)) {
+    return { ok: false, message: 'هذا النوع غير مدعوم حاليًا. المتوفر الآن SAS Radius / UniqueFi' };
+  }
+  const fetched = await uniqueFiFetchUsers(config);
+  if (!fetched.ok) return fetched;
+  const items = fetched.users.map(mapUniqueFiUser).filter((u) => u.sasId);
+  const saved = await upsertSasCustomers(items, config.panelId || null);
+  return {
+    ok: true,
+    source: 'uniquefi',
+    created: saved.created,
+    updated: saved.updated,
+    total: items.length,
+    remoteTotal: fetched.total,
+    pages: fetched.pages,
+    syncedAt: fetched.syncedAt,
+  };
 }
 
 app.get('/health', (req, res) => {
@@ -492,11 +727,11 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/app-version', (req, res) => {
-  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.6';
+  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.7';
   const apkUrl = process.env.APP_APK_URL || `${publicBaseUrl}/downloads/nodrix-latest.apk`;
   const notes =
     process.env.APP_UPDATE_NOTES ||
-    'تأسيس مزامنة SAS، إصلاح التواريخ، تجهيز حقول SAS للمشتركين، وحفظ نسخة محلية في PostgreSQL.';
+    'ربط لوحة SAS Radius / UniqueFi، مزامنة المشتركين الحقيقيين، تنظيف البيانات الوهمية، وإصلاح التحديث المباشر.';
 
   res.json({
     ok: true,
@@ -512,28 +747,43 @@ app.get('/api/app-version', (req, res) => {
 app.post('/api/sas/test-connection', async (req, res) => {
   try {
     const { type, sasUrl, username, password } = req.body;
-    if (type === 'postgres' || type === 'mock') {
-      return res.json({ ok: true, message: pool ? 'تم الاتصال بقاعدة PostgreSQL' : 'تم الاتصال التجريبي' });
+    const provider = type || 'uniquefi';
+    if (!['uniquefi', 'sas_radius', 'sas'].includes(provider)) {
+      return res.status(400).json({ ok: false, message: 'هذا النوع غير مدعوم حاليًا' });
     }
-    const adapter = createAdapter(type);
-    const result = await adapter.login({ sasUrl, username, password });
-    res.status(result.ok ? 200 : 401).json(result);
+    const result = await uniqueFiLogin({ sasUrl, username, password });
+    res.status(result.ok ? 200 : 401).json({ ok: result.ok, message: result.ok ? 'تم الاتصال بلوحة SAS بنجاح' : result.message, site: result.site });
   } catch (error) {
     res.status(400).json({ ok: false, message: error.message });
   }
 });
 
 app.post('/api/sas/save', async (req, res) => {
-  const { type, sasUrl, username, password } = req.body;
-  savedConfig = { type, sasUrl, username, password };
-  res.json({ ok: true, message: pool ? 'تم حفظ الإعدادات، البيانات محفوظة في PostgreSQL' : 'SAS config saved in memory for demo only' });
+  try {
+    const { type, sasUrl, username, password, name } = req.body;
+    if (!sasUrl || !username || !password) return res.status(400).json({ ok: false, message: 'الرابط واليوزر والباسورد مطلوبة' });
+    const saved = await saveSasPanel({ type: type || 'uniquefi', sasUrl, username, password, name });
+    res.json({ ok: true, message: 'تم حفظ لوحة الساس', panel: { type: saved.type, sasUrl: saved.sasUrl, username: saved.username, name: saved.name } });
+  } catch (error) {
+    res.status(400).json({ ok: false, message: error.message });
+  }
 });
 
 app.get('/api/sas/status', async (req, res) => {
   try {
-    if (!pool) return res.json({ ok: true, database: 'mock', source: savedConfig?.type || 'mock', lastSyncedAt: null, count: 0 });
+    const config = await getSavedSasConfig();
+    if (!pool) return res.json({ ok: true, database: 'mock', configured: Boolean(config), source: config?.type || 'none', lastSyncedAt: null, count: 0 });
     const count = await pool.query(`SELECT COUNT(*)::int AS count, MAX(last_synced_at) AS last_synced_at FROM customers WHERE company_id=$1 AND source='sas'`, [defaultCompanyId]);
-    res.json({ ok: true, database: 'postgresql', source: savedConfig?.type || sasSyncMode, count: count.rows[0].count, lastSyncedAt: count.rows[0].last_synced_at });
+    res.json({
+      ok: true,
+      database: 'postgresql',
+      configured: Boolean(config),
+      source: config?.type || 'none',
+      panelUrl: config?.sasUrl || '',
+      panelUsername: config?.username || '',
+      count: count.rows[0].count,
+      lastSyncedAt: count.rows[0].last_synced_at,
+    });
   } catch (error) {
     res.status(500).json({ ok: false, message: error.message });
   }
@@ -548,6 +798,21 @@ app.post('/api/sas/sync', async (req, res) => {
   }
 });
 
+app.post('/api/sas/clear-mock-data', async (req, res) => {
+  try {
+    res.json(await clearMockData());
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+app.get('/api/sas/clear-mock-data', async (req, res) => {
+  try {
+    res.json(await clearMockData());
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
 
 app.get('/api/dashboard', async (req, res) => {
   try {

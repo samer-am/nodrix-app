@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 
-const String currentAppVersion = '1.0.6';
+const String currentAppVersion = '1.0.7';
 const String defaultBackendUrl = 'https://nodrix-app-production.up.railway.app';
 
 void main() {
@@ -273,10 +273,10 @@ class SetupPage extends StatefulWidget {
 
 class _SetupPageState extends State<SetupPage> {
   final backend = TextEditingController(text: defaultBackendUrl);
-  final type = TextEditingController(text: 'mock');
-  final sasUrl = TextEditingController(text: 'https://demo.local');
-  final username = TextEditingController(text: 'admin');
-  final password = TextEditingController(text: 'admin123');
+  final type = TextEditingController(text: 'uniquefi');
+  final sasUrl = TextEditingController(text: 'https://admin.uniquefi.net');
+  final username = TextEditingController();
+  final password = TextEditingController();
   bool loading = false;
   String message = '';
 
@@ -324,19 +324,19 @@ class _SetupPageState extends State<SetupPage> {
             const SizedBox(height: 16),
             const Text('Nodrix', textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: .4)),
             const SizedBox(height: 6),
-            const Text('إدارة المشتركين والشبكات بواجهة عملية', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
+            const Text('اربط لوحة SAS مرة واحدة ثم اجلب كل المشتركين تلقائيًا', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
             const SizedBox(height: 24),
             AppCard(child: Column(children: [
               input('Backend URL', backend, Icons.cloud_rounded),
-              input('نوع المصدر', type, Icons.hub_rounded),
-              input('رابط الساس', sasUrl, Icons.link_rounded),
+              input('نوع اللوحة', type, Icons.hub_rounded),
+              input('رابط لوحة SAS', sasUrl, Icons.link_rounded),
               input('اسم المستخدم', username, Icons.person_rounded),
               input('كلمة المرور', password, Icons.lock_rounded, secret: true),
               if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(message, style: const TextStyle(color: AppColors.muted))),
               Row(children: [
                 Expanded(child: OutlinedButton(onPressed: loading ? null : test, child: const Text('اختبار الاتصال'))),
                 const SizedBox(width: 10),
-                Expanded(child: FilledButton(onPressed: loading ? null : save, child: Text(loading ? 'انتظر...' : 'دخول'))),
+                Expanded(child: FilledButton(onPressed: loading ? null : save, child: Text(loading ? 'انتظر...' : 'حفظ اللوحة'))),
               ]),
             ])),
           ],
@@ -619,6 +619,9 @@ class CustomerDetailsPage extends StatelessWidget {
           InfoLine('الباقة', asText(customer['package']), Icons.speed_rounded),
           InfoLine('السعر', money(customer['price']), Icons.payments_rounded),
           InfoLine('يوزر SAS', asText(customer['sasUsername']), Icons.alternate_email_rounded),
+          InfoLine('الأيام المتبقية', asText(customer['sasRemainingDays']), Icons.timelapse_rounded),
+          InfoLine('متصل الآن', asText(customer['sasOnlineStatus']) == '1' ? 'نعم' : 'لا', Icons.wifi_rounded),
+          InfoLine('ترافيك اليوم', asText(customer['sasDailyTrafficGb']) == '—' ? 'غير متوفر' : '${asText(customer['sasDailyTrafficGb'])} GB', Icons.data_usage_rounded),
           InfoLine('مصدر البيانات', asText(customer['source'], 'manual') == 'sas' ? 'من الساس' : 'يدوي/محلي', Icons.sync_rounded),
           InfoLine('تاريخ البداية', dateLabel(customer['startAt']), Icons.calendar_month_rounded),
           InfoLine('تاريخ الانتهاء', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
@@ -1001,6 +1004,7 @@ class SasSyncPage extends StatefulWidget {
 
 class _SasSyncPageState extends State<SasSyncPage> {
   bool loading = false;
+  bool clearing = false;
   Map<String, dynamic>? status;
   String message = '';
 
@@ -1025,7 +1029,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
       final result = await widget.api.syncSas();
       if (!mounted) return;
       setState(() => message = result['ok'] == true
-          ? 'تمت المزامنة: جديد ${result['created'] ?? 0} / تحديث ${result['updated'] ?? 0}'
+          ? 'تمت المزامنة: جديد ${result['created'] ?? 0} / تحديث ${result['updated'] ?? 0} / المجموع ${result['total'] ?? 0}'
           : asText(result['message'], 'فشلت المزامنة'));
       await loadStatus();
     } catch (e) {
@@ -1035,28 +1039,49 @@ class _SasSyncPageState extends State<SasSyncPage> {
     }
   }
 
+  Future<void> clearMock() async {
+    setState(() { clearing = true; message = ''; });
+    try {
+      final result = await widget.api.clearMockData();
+      if (!mounted) return;
+      setState(() => message = result['ok'] == true ? 'تم تنظيف البيانات الوهمية: ${result['deleted'] ?? 0}' : asText(result['message'], 'فشل التنظيف'));
+      await loadStatus();
+    } catch (e) {
+      if (mounted) setState(() => message = 'خطأ التنظيف: $e');
+    } finally {
+      if (mounted) setState(() => clearing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = status ?? {};
-    return Scaffold(appBar: AppBar(title: const Text('مزامنة الساس')), body: ListView(padding: const EdgeInsets.all(18), children: [
+    final configured = s['configured'] == true;
+    return Scaffold(appBar: AppBar(title: const Text('لوحات الساس')), body: ListView(padding: const EdgeInsets.all(18), children: [
       AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('مصدر البيانات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+        const Text('لوحة SAS المرتبطة', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
         const SizedBox(height: 10),
-        const Text('هذه المرحلة تجهيز للمزامنة الحقيقية. حاليًا يتم استخدام Mock SAS بنفس هيكل البيانات المطلوب حتى نربط لوحة الساس التي سترسلها لاحقًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        Text(configured ? 'تم حفظ لوحة SAS. يمكنك المزامنة الآن لجلب كل المشتركين من اللوحة.' : 'لم تحفظ لوحة SAS بعد. ارجع إلى شاشة الربط واحفظ الرابط واليوزر والباسورد أولًا.', style: const TextStyle(color: AppColors.muted, height: 1.45)),
         const SizedBox(height: 14),
         MetricLine('قاعدة البيانات', asText(s['database'], 'postgresql')),
-        MetricLine('المصدر', asText(s['source'], 'mock')),
+        MetricLine('نوع اللوحة', asText(s['source'], 'none')),
+        MetricLine('الرابط', asText(s['panelUrl'], 'غير محفوظ')),
+        MetricLine('اليوزر', asText(s['panelUsername'], 'غير محفوظ')),
         MetricLine('عدد مشتركين SAS', asText(s['count'], '0')),
         MetricLine('آخر مزامنة', dateLabel(s['lastSyncedAt']), last: true),
         if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(message, style: const TextStyle(color: AppColors.warning))),
         const SizedBox(height: 14),
-        FilledButton.icon(onPressed: loading ? null : sync, icon: const Icon(Icons.sync_rounded, size: 18), label: Text(loading ? 'جاري المزامنة...' : 'مزامنة الآن')),
+        Row(children: [
+          Expanded(child: FilledButton.icon(onPressed: loading ? null : sync, icon: const Icon(Icons.sync_rounded, size: 18), label: Text(loading ? 'جاري المزامنة...' : 'مزامنة الآن'))),
+          const SizedBox(width: 10),
+          Expanded(child: OutlinedButton.icon(onPressed: clearing ? null : clearMock, icon: const Icon(Icons.cleaning_services_rounded, size: 18), label: Text(clearing ? 'تنظيف...' : 'حذف الوهمي'))),
+        ]),
       ])),
       const SizedBox(height: 12),
       const AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('ما الذي يأتي من الساس؟', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+        Text('طريقة العمل', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
         SizedBox(height: 10),
-        Text('اليوزر، الباقة، حالة الاشتراك، تاريخ البداية، تاريخ الانتهاء، الهاتف، IP، MAC. هذه البيانات لا تكتب يدويًا عند الربط الحقيقي.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        Text('تضيف رابط لوحة SAS مرة واحدة فقط، مثل admin.uniquefi.net، مع يوزر وباسورد اللوحة. بعدها Nodrix يسجل دخول من السيرفر ويجلب كل المشتركين والباقات والتواريخ والحالة تلقائيًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
       ])),
     ]));
   }
