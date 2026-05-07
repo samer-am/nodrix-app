@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'services/api_service.dart';
 
 const String currentAppVersion = '1.0.7';
@@ -278,9 +281,44 @@ class _SetupPageState extends State<SetupPage> {
   final username = TextEditingController();
   final password = TextEditingController();
   bool loading = false;
+  bool checkingSavedLogin = true;
   String message = '';
 
-  ApiService api() => ApiService(baseUrl: backend.text.trim().replaceAll(RegExp(r'/+$'), ''));
+  ApiService api() => ApiService(baseUrl: backend.text.trim().replaceFirst(RegExp(r'/+$'), ''));
+
+  @override
+  void initState() {
+    super.initState();
+    restoreLogin();
+  }
+
+  Future<void> restoreLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedBackend = prefs.getString('backendUrl') ?? defaultBackendUrl;
+      backend.text = savedBackend;
+      final shouldStayLoggedIn = prefs.getBool('stayLoggedIn') ?? false;
+      if (shouldStayLoggedIn) {
+        final service = ApiService(baseUrl: savedBackend.replaceFirst(RegExp(r'/+$'), ''));
+        final status = await service.getSasStatus();
+        if (!mounted) return;
+        if (status['ok'] == true) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(api: service)));
+          return;
+        }
+      }
+    } catch (_) {
+      // Stay on setup screen when the saved session cannot be verified.
+    } finally {
+      if (mounted) setState(() => checkingSavedLogin = false);
+    }
+  }
+
+  Future<void> persistLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('backendUrl', backend.text.trim().replaceFirst(RegExp(r'/+$'), ''));
+    await prefs.setBool('stayLoggedIn', true);
+  }
 
   Future<void> test() async {
     setState(() { loading = true; message = ''; });
@@ -298,10 +336,31 @@ class _SetupPageState extends State<SetupPage> {
     setState(() => loading = true);
     try {
       await api().saveConfig(type: type.text.trim(), sasUrl: sasUrl.text.trim(), username: username.text.trim(), password: password.text.trim());
+      await persistLogin();
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(api: api())));
     } catch (e) {
       if (mounted) setState(() => message = 'تعذر الحفظ: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  Future<void> browserLogin() async {
+    setState(() { loading = true; message = ''; });
+    try {
+      await api().saveConfig(type: type.text.trim(), sasUrl: sasUrl.text.trim(), username: username.text.trim(), password: password.text.trim());
+      await persistLogin();
+      if (!mounted) return;
+      final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => SasWebLoginPage(api: api(), sasUrl: sasUrl.text.trim())));
+      if (!mounted) return;
+      if (ok == true) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(api: api())));
+      } else {
+        setState(() => message = 'لم يتم التقاط جلسة SAS. سجل دخولك داخل المتصفح ثم انتظر ظهور رسالة النجاح.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => message = 'تعذر فتح تسجيل الدخول: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -316,6 +375,9 @@ class _SetupPageState extends State<SetupPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (checkingSavedLogin) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -334,14 +396,107 @@ class _SetupPageState extends State<SetupPage> {
               input('كلمة المرور', password, Icons.lock_rounded, secret: true),
               if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(message, style: const TextStyle(color: AppColors.muted))),
               Row(children: [
-                Expanded(child: OutlinedButton(onPressed: loading ? null : test, child: const Text('اختبار الاتصال'))),
+                Expanded(child: OutlinedButton(onPressed: loading ? null : test, child: const Text('اختبار مباشر'))),
                 const SizedBox(width: 10),
                 Expanded(child: FilledButton(onPressed: loading ? null : save, child: Text(loading ? 'انتظر...' : 'حفظ اللوحة'))),
               ]),
+              const SizedBox(height: 10),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(
+                onPressed: loading ? null : browserLogin,
+                icon: const Icon(Icons.public_rounded, size: 18),
+                label: const Text('تسجيل دخول عبر المتصفح'),
+              )),
             ])),
           ],
         ),
       ),
+    );
+  }
+}
+
+
+class SasWebLoginPage extends StatefulWidget {
+  final ApiService api;
+  final String sasUrl;
+  const SasWebLoginPage({super.key, required this.api, required this.sasUrl});
+  @override
+  State<SasWebLoginPage> createState() => _SasWebLoginPageState();
+}
+
+class _SasWebLoginPageState extends State<SasWebLoginPage> {
+  late final WebViewController controller;
+  bool saving = false;
+  String message = 'سجل دخولك داخل لوحة SAS. سيتم حفظ الجلسة تلقائيًا بعد نجاح الدخول.';
+
+  String normalizedUrl() {
+    final raw = widget.sasUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final base = raw.startsWith('http://') || raw.startsWith('https://') ? raw : 'https://$raw';
+    return '$base/#/login';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(NavigationDelegate(
+        onPageFinished: (_) => captureToken(),
+      ))
+      ..loadRequest(Uri.parse(normalizedUrl()));
+  }
+
+  String _cleanJsResult(Object? result) {
+    var text = result?.toString() ?? '';
+    if (text == 'null' || text == 'undefined') return '';
+    if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) {
+      text = text.substring(1, text.length - 1).replaceAll(r'\"', '"');
+    }
+    return text.trim();
+  }
+
+  Future<void> captureToken() async {
+    if (saving) return;
+    try {
+      final result = await controller.runJavaScriptReturningResult("localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || ''");
+      final token = _cleanJsResult(result);
+      if (token.length < 20) return;
+      setState(() { saving = true; message = 'تم العثور على جلسة SAS. جاري الحفظ...'; });
+      final saved = await widget.api.saveSasToken(token: token);
+      if (!mounted) return;
+      if (saved['ok'] == true) {
+        setState(() => message = 'تم حفظ جلسة SAS بنجاح.');
+        Navigator.pop(context, true);
+      } else {
+        setState(() { saving = false; message = asText(saved['message'], 'تعذر حفظ جلسة SAS'); });
+      }
+    } catch (_) {
+      // بعض صفحات SAS لا تسمح بالقراءة فورًا؛ سيجرب المستخدم زر الالتقاط اليدوي.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('تسجيل دخول SAS')),
+      body: Column(children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          color: AppColors.panel,
+          child: Text(message, style: const TextStyle(color: AppColors.muted, height: 1.4)),
+        ),
+        Expanded(child: WebViewWidget(controller: controller)),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              Expanded(child: OutlinedButton.icon(onPressed: saving ? null : captureToken, icon: const Icon(Icons.key_rounded, size: 18), label: const Text('التقاط الجلسة'))),
+              const SizedBox(width: 10),
+              Expanded(child: FilledButton.icon(onPressed: saving ? null : () => Navigator.pop(context, false), icon: const Icon(Icons.close_rounded, size: 18), label: const Text('إغلاق'))),
+            ]),
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -353,10 +508,68 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int index = 0;
   int refreshToken = 0;
+  Timer? syncTimer;
+  bool syncRunning = false;
+  DateTime? lastAutoSync;
   void refresh() => setState(() => refreshToken++);
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    startActiveSync();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    syncTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      startActiveSync();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+      syncTimer?.cancel();
+      syncTimer = null;
+    }
+  }
+
+  void startActiveSync() {
+    syncTimer?.cancel();
+    runAutoSync();
+    syncTimer = Timer.periodic(const Duration(seconds: 30), (_) => runAutoSync());
+  }
+
+  Future<void> runAutoSync() async {
+    if (syncRunning) return;
+    syncRunning = true;
+    try {
+      final result = await widget.api.syncSas();
+      if (mounted && result['ok'] == true) {
+        lastAutoSync = DateTime.now();
+        refresh();
+      }
+    } catch (_) {
+      // Silent auto-sync. Manual sync page shows detailed errors.
+    } finally {
+      syncRunning = false;
+    }
+  }
+
+  Future<void> logout() async {
+    syncTimer?.cancel();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('stayLoggedIn');
+    await prefs.remove('backendUrl');
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const SetupPage()), (_) => false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -364,7 +577,7 @@ class _HomePageState extends State<HomePage> {
       CustomersPage(key: ValueKey('customers-$refreshToken'), api: widget.api),
       DashboardPage(key: ValueKey('dash-$refreshToken'), api: widget.api),
       DevicesPage(key: ValueKey('devices-$refreshToken'), api: widget.api),
-      MorePage(key: ValueKey('more-$refreshToken'), api: widget.api),
+      MorePage(key: ValueKey('more-$refreshToken'), api: widget.api, onLogout: logout),
     ];
     return Scaffold(
       body: pages[index],
@@ -935,7 +1148,8 @@ class DeviceRow extends StatelessWidget {
 
 class MorePage extends StatelessWidget {
   final ApiService api;
-  const MorePage({super.key, required this.api});
+  final VoidCallback onLogout;
+  const MorePage({super.key, required this.api, required this.onLogout});
   @override
   Widget build(BuildContext context) {
     return PageFrame(title: 'المزيد', subtitle: 'إعدادات وأدوات النظام', children: [
@@ -949,6 +1163,7 @@ class MorePage extends StatelessWidget {
         MoreTile(icon: Icons.sync_rounded, label: 'مزامنة الساس', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SasSyncPage(api: api)))),
         MoreTile(icon: Icons.system_update_rounded, label: 'التحديثات', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UpdatesPage(api: api)))),
         MoreTile(icon: Icons.settings_rounded, label: 'الإعدادات', onTap: () {}),
+        MoreTile(icon: Icons.logout_rounded, label: 'تسجيل الخروج من التطبيق', onTap: onLogout),
       ]),
       const SizedBox(height: 12),
       MoreSection(title: 'الدعم لاحقًا', children: [
@@ -1053,6 +1268,35 @@ class _SasSyncPageState extends State<SasSyncPage> {
     }
   }
 
+  Future<void> openBrowserLogin() async {
+    final s = status ?? {};
+    final url = asText(s['panelUrl'], '').trim();
+    if (url.isEmpty) {
+      setState(() => message = 'احفظ رابط لوحة SAS أولًا من شاشة الربط.');
+      return;
+    }
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => SasWebLoginPage(api: widget.api, sasUrl: url)));
+    if (!mounted) return;
+    if (ok == true) {
+      setState(() => message = 'تم حفظ جلسة SAS. يمكنك المزامنة الآن.');
+      await loadStatus();
+    }
+  }
+
+  Future<void> logoutSas() async {
+    setState(() { loading = true; message = ''; });
+    try {
+      final result = await widget.api.logoutSasSession();
+      if (!mounted) return;
+      setState(() => message = result['ok'] == true ? 'تم تسجيل الخروج من جلسة SAS المحفوظة' : asText(result['message'], 'فشل تسجيل الخروج'));
+      await loadStatus();
+    } catch (e) {
+      if (mounted) setState(() => message = 'خطأ تسجيل الخروج: $e');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = status ?? {};
@@ -1068,6 +1312,7 @@ class _SasSyncPageState extends State<SasSyncPage> {
         MetricLine('الرابط', asText(s['panelUrl'], 'غير محفوظ')),
         MetricLine('اليوزر', asText(s['panelUsername'], 'غير محفوظ')),
         MetricLine('عدد مشتركين SAS', asText(s['count'], '0')),
+        MetricLine('جلسة المتصفح', s['hasToken'] == true ? 'محفوظة' : 'غير محفوظة'),
         MetricLine('آخر مزامنة', dateLabel(s['lastSyncedAt']), last: true),
         if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(message, style: const TextStyle(color: AppColors.warning))),
         const SizedBox(height: 14),
@@ -1076,12 +1321,18 @@ class _SasSyncPageState extends State<SasSyncPage> {
           const SizedBox(width: 10),
           Expanded(child: OutlinedButton.icon(onPressed: clearing ? null : clearMock, icon: const Icon(Icons.cleaning_services_rounded, size: 18), label: Text(clearing ? 'تنظيف...' : 'حذف الوهمي'))),
         ]),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(onPressed: openBrowserLogin, icon: const Icon(Icons.public_rounded, size: 18), label: const Text('دخول عبر المتصفح'))),
+          const SizedBox(width: 10),
+          Expanded(child: OutlinedButton.icon(onPressed: loading ? null : logoutSas, icon: const Icon(Icons.logout_rounded, size: 18), label: const Text('خروج SAS'))),
+        ]),
       ])),
       const SizedBox(height: 12),
       const AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('طريقة العمل', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
         SizedBox(height: 10),
-        Text('تضيف رابط لوحة SAS مرة واحدة فقط، مثل admin.uniquefi.net، مع يوزر وباسورد اللوحة. بعدها Nodrix يسجل دخول من السيرفر ويجلب كل المشتركين والباقات والتواريخ والحالة تلقائيًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
+        Text('إذا منع Cloudflare تسجيل الدخول المباشر من السيرفر، استخدم زر دخول عبر المتصفح. بعدها Nodrix يحفظ جلسة SAS ويحدث البيانات عند فتح التطبيق وكل 30 ثانية فقط أثناء بقاء التطبيق مفتوحًا.', style: TextStyle(color: AppColors.muted, height: 1.45)),
       ])),
     ]));
   }

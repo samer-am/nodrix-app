@@ -128,7 +128,16 @@ class ApiService {
     return _postMap('/api/sas/sync', {});
   }
 
+  Future<Map<String, dynamic>> saveSasToken({required String token}) async {
+    return _postMap('/api/sas/save-token', {'token': token});
+  }
+
+  Future<Map<String, dynamic>> logoutSasSession() async {
+    return _postMap('/api/sas/logout', {});
+  }
+
   Future<Map<String, dynamic>> clearMockData() async {
     return _postMap('/api/sas/clear-mock-data', {});
   }
 }
+

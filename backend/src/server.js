@@ -225,9 +225,13 @@ function userIndexPayload(page = 1, rowsPerPage = 100) {
 }
 
 async function uniqueFiFetchUsers(config) {
-  const login = await uniqueFiLogin(config);
-  if (!login.ok) return { ok: false, message: login.message, phase: login.phase || 'login' };
-  const token = login.token;
+  let token = String(config?.token || '').trim();
+  let tokenSource = token ? 'browser' : 'login';
+  if (!token) {
+    const login = await uniqueFiLogin(config);
+    if (!login.ok) return { ok: false, message: login.message, phase: login.phase || 'login' };
+    token = login.token;
+  }
   const all = [];
   let lastPage = 1;
   let total = 0;
@@ -241,9 +245,11 @@ async function uniqueFiFetchUsers(config) {
       if (!response?.next_page_url && page >= lastPage) break;
     }
   } catch (error) {
-    return { ok: false, message: safeSasError('فشل جلب المستخدمين من SAS', error), phase: 'users', status: error.status };
+    const expired = error?.status === 401 || error?.status === 403;
+    const extra = tokenSource === 'browser' && expired ? ' — الجلسة المحفوظة قد تكون منتهية. أعد تسجيل الدخول عبر المتصفح.' : '';
+    return { ok: false, message: `${safeSasError('فشل جلب المستخدمين من SAS', error)}${extra}`, phase: 'users', status: error.status };
   }
-  return { ok: true, users: all, total, pages: lastPage, syncedAt: new Date().toISOString() };
+  return { ok: true, users: all, total, pages: lastPage, syncedAt: new Date().toISOString(), tokenSource };
 }
 
 function bytesToGb(value) {
@@ -491,12 +497,19 @@ async function migrateDatabase() {
       base_url TEXT NOT NULL,
       username TEXT NOT NULL,
       password_enc TEXT NOT NULL,
+      token_enc TEXT,
+      token_updated_at TIMESTAMPTZ,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       last_test_at TIMESTAMPTZ,
       last_synced_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE sas_panels ADD COLUMN IF NOT EXISTS token_enc TEXT;
+    ALTER TABLE sas_panels ADD COLUMN IF NOT EXISTS token_updated_at TIMESTAMPTZ;
   `);
 }
 
@@ -671,6 +684,9 @@ async function getSavedSasConfig() {
     sasUrl: panel.base_url,
     username: panel.username,
     password: decryptSecret(panel.password_enc),
+    token: decryptSecret(panel.token_enc),
+    hasToken: Boolean(panel.token_enc),
+    tokenUpdatedAt: panel.token_updated_at,
     panelId: panel.id,
     name: panel.name,
   };
@@ -693,12 +709,43 @@ async function saveSasPanel({ type, sasUrl, username, password, name }) {
   return { panelId, type: type || 'uniquefi', sasUrl: normalizeBaseUrl(sasUrl), username, name: name || 'SAS Radius' };
 }
 
+
+async function saveSasBrowserToken(token) {
+  const cleanToken = String(token || '').trim();
+  if (!cleanToken || cleanToken.length < 20) return { ok: false, message: 'جلسة SAS غير صالحة' };
+  if (!pool) {
+    savedConfig = { ...(savedConfig || {}), token: cleanToken };
+    return { ok: true, message: 'تم حفظ جلسة SAS' };
+  }
+  const config = await getSavedSasConfig();
+  if (!config?.panelId) return { ok: false, message: 'احفظ لوحة SAS أولًا قبل حفظ الجلسة' };
+  await pool.query(
+    `UPDATE sas_panels SET token_enc=$2, token_updated_at=NOW(), updated_at=NOW() WHERE id=$1 AND company_id=$3`,
+    [config.panelId, encryptSecret(cleanToken), defaultCompanyId]
+  );
+  return { ok: true, message: 'تم حفظ جلسة SAS' };
+}
+
+async function logoutSasBrowserSession() {
+  if (!pool) {
+    if (savedConfig) savedConfig.token = '';
+    return { ok: true, message: 'تم حذف جلسة SAS' };
+  }
+  const config = await getSavedSasConfig();
+  if (!config?.panelId) return { ok: false, message: 'لا توجد لوحة SAS محفوظة' };
+  await pool.query(
+    `UPDATE sas_panels SET token_enc=NULL, token_updated_at=NULL, updated_at=NOW() WHERE id=$1 AND company_id=$2`,
+    [config.panelId, defaultCompanyId]
+  );
+  return { ok: true, message: 'تم حذف جلسة SAS' };
+}
+
 async function clearMockData() {
   if (!pool) return { ok: true, deleted: 0 };
   const result = await pool.query(
     `DELETE FROM customers
      WHERE company_id=$1 AND (
-       source='sas' OR id IN ('cus_ali','cus_zainab','cus_omar')
+       source='mock' OR id IN ('cus_ali','cus_zainab','cus_omar')
        OR sas_id LIKE 'sas_%'
        OR name IN ('علي حسن','زينب محمد','عمر خالد','حسين سعيد')
      )`,
@@ -845,6 +892,25 @@ app.post('/api/sas/save', async (req, res) => {
   }
 });
 
+
+app.post('/api/sas/save-token', async (req, res) => {
+  try {
+    const result = await saveSasBrowserToken(req.body?.token);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+app.post('/api/sas/logout', async (req, res) => {
+  try {
+    const result = await logoutSasBrowserSession();
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
 app.get('/api/sas/status', async (req, res) => {
   try {
     const config = await getSavedSasConfig();
@@ -857,6 +923,8 @@ app.get('/api/sas/status', async (req, res) => {
       source: config?.type || 'none',
       panelUrl: config?.sasUrl || '',
       panelUsername: config?.username || '',
+      hasToken: Boolean(config?.hasToken || config?.token),
+      tokenUpdatedAt: config?.tokenUpdatedAt || null,
       count: count.rows[0].count,
       lastSyncedAt: count.rows[0].last_synced_at,
     });
@@ -873,15 +941,22 @@ app.get('/api/sas/diagnose', async (req, res) => {
     if (!config || !config.sasUrl || !config.username || !config.password) {
       return res.status(400).json({ ok: false, phase: 'config', message: 'لا توجد لوحة SAS محفوظة' });
     }
-    const login = await uniqueFiLogin(config);
-    if (!login.ok) {
-      return res.status(200).json({ ok: false, phase: login.phase || 'login', message: login.message, status: login.responseStatus || null, resourcesStatus: login.resourcesStatus || null, resourcesBlocked: Boolean(login.resourcesBlocked) });
+    let token = String(config.token || '').trim();
+    let tokenSource = token ? 'browser' : 'login';
+    let login = null;
+    if (!token) {
+      login = await uniqueFiLogin(config);
+      if (!login.ok) {
+        return res.status(200).json({ ok: false, phase: login.phase || 'login', message: login.message, status: login.responseStatus || null, resourcesStatus: login.resourcesStatus || null, resourcesBlocked: Boolean(login.resourcesBlocked), hasToken: false });
+      }
+      token = login.token;
     }
     try {
-      const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user?page=1', userIndexPayload(1), login.token);
+      const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user?page=1', userIndexPayload(1), token);
       return res.json({
         ok: true,
         phase: 'users',
+        tokenSource,
         message: 'الاتصال والمزامنة التجريبية نجحا',
         total: firstPage?.total || 0,
         pageRows: Array.isArray(firstPage?.data) ? firstPage.data.length : 0,
