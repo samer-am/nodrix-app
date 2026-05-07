@@ -27,11 +27,11 @@ app.get('/health', (req, res) => {
 app.use('/downloads', express.static('public/downloads'));
 
 app.get('/api/app-version', (req, res) => {
-  const latestVersion = process.env.APP_LATEST_VERSION || '0.2.0';
+  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.3';
   const apkUrl = process.env.APP_APK_URL || `${publicBaseUrl}/downloads/nodrix-latest.apk`;
   const notes =
     process.env.APP_UPDATE_NOTES ||
-    'تعريب كامل للواجهة، إضافة صفحة التحديثات، وتحسين رسائل الحالة داخل التطبيق.';
+    'تحسين واجهة المستخدم، إصلاح رقم النسخة، إضافة وتعديل المشتركين، وتسجيل دفعة مبدئي.';
 
   res.json({
     ok: true,
@@ -97,6 +97,42 @@ app.get('/api/customers', async (req, res) => {
   const adapter = getAdapterOrError(res);
   if (!adapter) return;
   res.json(await adapter.getCustomers());
+});
+
+
+app.get('/api/customers/:id', async (req, res) => {
+  const adapter = getAdapterOrError(res);
+  if (!adapter) return;
+  const customer = await adapter.getCustomer(req.params.id);
+  if (!customer) return res.status(404).json({ ok: false, message: 'المشترك غير موجود' });
+  res.json({ ok: true, customer });
+});
+
+app.post('/api/customers', async (req, res) => {
+  const adapter = getAdapterOrError(res);
+  if (!adapter) return;
+  const result = await adapter.addCustomer(req.body);
+  res.status(result.ok ? 201 : 400).json(result);
+});
+
+app.put('/api/customers/:id', async (req, res) => {
+  const adapter = getAdapterOrError(res);
+  if (!adapter) return;
+  const result = await adapter.updateCustomer(req.params.id, req.body);
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+app.get('/api/customers/:id/payments', async (req, res) => {
+  const adapter = getAdapterOrError(res);
+  if (!adapter) return;
+  res.json({ ok: true, payments: await adapter.getPayments(req.params.id) });
+});
+
+app.post('/api/customers/:id/payments', async (req, res) => {
+  const adapter = getAdapterOrError(res);
+  if (!adapter) return;
+  const result = await adapter.addPayment(req.params.id, req.body);
+  res.status(result.ok ? 201 : 400).json(result);
 });
 
 app.get('/api/sectors', async (req, res) => {

@@ -23,23 +23,36 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> _postMap(String path, Map<String, dynamic> body) async {
+    final response = await http.post(
+      _uri(path),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    return _readMap(response);
+  }
+
+  Future<Map<String, dynamic>> _putMap(String path, Map<String, dynamic> body) async {
+    final response = await http.put(
+      _uri(path),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+    return _readMap(response);
+  }
+
   Future<Map<String, dynamic>> testConnection({
     required String type,
     required String sasUrl,
     required String username,
     required String password,
   }) async {
-    final response = await http.post(
-      _uri('/api/sas/test-connection'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'type': type,
-        'sasUrl': sasUrl,
-        'username': username,
-        'password': password,
-      }),
-    );
-    return _readMap(response);
+    return _postMap('/api/sas/test-connection', {
+      'type': type,
+      'sasUrl': sasUrl,
+      'username': username,
+      'password': password,
+    });
   }
 
   Future<void> saveConfig({
@@ -48,20 +61,13 @@ class ApiService {
     required String username,
     required String password,
   }) async {
-    final response = await http.post(
-      _uri('/api/sas/save'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'type': type,
-        'sasUrl': sasUrl,
-        'username': username,
-        'password': password,
-      }),
-    );
-    if (response.statusCode >= 400) {
-      final data = await _readMap(response);
-      throw Exception(data['message'] ?? 'فشل حفظ الإعدادات');
-    }
+    final data = await _postMap('/api/sas/save', {
+      'type': type,
+      'sasUrl': sasUrl,
+      'username': username,
+      'password': password,
+    });
+    if (data['ok'] == false) throw Exception(data['message'] ?? 'فشل حفظ الإعدادات');
   }
 
   Future<Map<String, dynamic>> getDashboard() async {
@@ -69,9 +75,23 @@ class ApiService {
     return _readMap(response);
   }
 
-  Future<List<dynamic>> getCustomers() async {
+  Future<List<Map<String, dynamic>>> getCustomers() async {
     final response = await http.get(_uri('/api/customers'));
-    return jsonDecode(response.body) as List<dynamic>;
+    final decoded = jsonDecode(response.body);
+    if (decoded is List) return decoded.cast<Map<String, dynamic>>();
+    throw Exception('استجابة المشتركين غير صحيحة');
+  }
+
+  Future<Map<String, dynamic>> addCustomer(Map<String, dynamic> customer) {
+    return _postMap('/api/customers', customer);
+  }
+
+  Future<Map<String, dynamic>> updateCustomer(dynamic id, Map<String, dynamic> customer) {
+    return _putMap('/api/customers/$id', customer);
+  }
+
+  Future<Map<String, dynamic>> addPayment(dynamic id, Map<String, dynamic> payment) {
+    return _postMap('/api/customers/$id/payments', payment);
   }
 
   Future<List<dynamic>> getSectors() async {
