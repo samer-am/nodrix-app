@@ -1,6 +1,6 @@
 {
   "name": "nodrix-backend",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -10,6 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
   }
 }

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'services/api_service.dart';
 
-const String currentAppVersion = '1.0.4';
+const String currentAppVersion = '1.0.5';
 const String defaultBackendUrl = 'https://nodrix-app-production.up.railway.app';
 
 void main() {
@@ -18,19 +18,20 @@ void main() {
 }
 
 class AppColors {
-  static const bg = Color(0xFF0B0F14);
-  static const bg2 = Color(0xFF101720);
+  static const bg = Color(0xFF090D12);
+  static const panel = Color(0xFF0F151D);
   static const card = Color(0xFF141B24);
-  static const card2 = Color(0xFF182231);
-  static const border = Color(0xFF263241);
-  static const text = Color(0xFFE7EDF5);
-  static const muted = Color(0xFF8B98A8);
-  static const accent = Color(0xFF0EA5E9);
-  static const accent2 = Color(0xFF38BDF8);
-  static const gold = Color(0xFFFACC15);
-  static const green = Color(0xFF22C55E);
-  static const red = Color(0xFFEF4444);
-  static const orange = Color(0xFFF59E0B);
+  static const cardSoft = Color(0xFF192331);
+  static const border = Color(0xFF24303F);
+  static const text = Color(0xFFE8EEF6);
+  static const muted = Color(0xFF8A97A6);
+  static const faint = Color(0xFF566272);
+  static const primary = Color(0xFF2E8CFF);
+  static const primarySoft = Color(0xFF163251);
+  static const green = Color(0xFF20C77A);
+  static const red = Color(0xFFEF5F5F);
+  static const warning = Color(0xFFF5B547);
+  static const purple = Color(0xFF9B7CFF);
 }
 
 class NodrixApp extends StatelessWidget {
@@ -47,52 +48,63 @@ class NodrixApp extends StatelessWidget {
         brightness: Brightness.dark,
         fontFamily: 'Roboto',
         scaffoldBackgroundColor: AppColors.bg,
-        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.accent, brightness: Brightness.dark).copyWith(
-          primary: AppColors.accent,
-          secondary: AppColors.gold,
+        colorScheme: const ColorScheme.dark(
+          primary: AppColors.primary,
+          secondary: AppColors.purple,
           surface: AppColors.card,
+          error: AppColors.red,
+        ),
+        textTheme: const TextTheme(
+          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.text),
+          titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.text),
+          bodyMedium: TextStyle(fontSize: 13.5, color: AppColors.text),
+          bodySmall: TextStyle(fontSize: 12, color: AppColors.muted),
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: AppColors.bg,
           elevation: 0,
           centerTitle: true,
           scrolledUnderElevation: 0,
-          titleTextStyle: TextStyle(color: AppColors.text, fontSize: 22, fontWeight: FontWeight.w900),
-          iconTheme: IconThemeData(color: AppColors.text),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          color: AppColors.card,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28), side: const BorderSide(color: AppColors.border)),
+          titleTextStyle: TextStyle(color: AppColors.text, fontSize: 18, fontWeight: FontWeight.w800),
+          iconTheme: IconThemeData(color: AppColors.text, size: 22),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: const Color(0xFF0F141B),
-          labelStyle: const TextStyle(color: AppColors.muted),
-          hintStyle: const TextStyle(color: AppColors.muted),
+          fillColor: AppColors.panel,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          labelStyle: const TextStyle(color: AppColors.muted, fontSize: 13),
+          hintStyle: const TextStyle(color: AppColors.faint, fontSize: 13),
           prefixIconColor: AppColors.muted,
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: AppColors.border)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: AppColors.border)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: AppColors.accent2, width: 1.4)),
-          errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: AppColors.red)),
+          prefixIconConstraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.border)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.border)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.primary, width: 1.2)),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: AppColors.accent,
+            backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
-            minimumSize: const Size(64, 52),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            minimumSize: const Size(58, 46),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
             foregroundColor: AppColors.text,
             side: const BorderSide(color: AppColors.border),
-            minimumSize: const Size(64, 52),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            textStyle: const TextStyle(fontWeight: FontWeight.w900),
+            minimumSize: const Size(58, 42),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primary,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
           ),
         ),
       ),
@@ -106,9 +118,10 @@ String asText(dynamic value, [String fallback = '—']) {
   return v.isEmpty ? fallback : v;
 }
 
+int asInt(dynamic value) => int.tryParse(value?.toString().replaceAll(',', '') ?? '') ?? 0;
+
 String money(dynamic value) {
-  final raw = value?.toString().replaceAll(',', '') ?? '0';
-  final n = int.tryParse(raw) ?? 0;
+  final n = asInt(value);
   final s = n.toString();
   final b = StringBuffer();
   for (var i = 0; i < s.length; i++) {
@@ -119,18 +132,21 @@ String money(dynamic value) {
   return '${b.toString()} د.ع';
 }
 
+String todayIso() => DateTime.now().toIso8601String().substring(0, 10);
+String afterDays(int days) => DateTime.now().add(Duration(days: days)).toIso8601String().substring(0, 10);
+
 Color statusColor(String status) {
   switch (status) {
     case 'active':
     case 'online':
       return AppColors.green;
     case 'expires_soon':
-      return AppColors.orange;
+      return AppColors.warning;
     case 'expired':
     case 'offline':
       return AppColors.red;
     case 'paused':
-      return AppColors.muted;
+      return AppColors.faint;
     default:
       return AppColors.muted;
   }
@@ -139,26 +155,25 @@ Color statusColor(String status) {
 String statusLabel(String status) {
   switch (status) {
     case 'active':
-      return 'متصل';
+      return 'فعال';
     case 'expires_soon':
-      return 'قريب من الانتهاء';
+      return 'قريب الانتهاء';
     case 'expired':
       return 'منتهي';
     case 'paused':
       return 'موقوف';
     case 'online':
-      return 'Online';
+      return 'متصل';
     case 'offline':
-      return 'Offline';
+      return 'متوقف';
     default:
-      return status;
+      return status.isEmpty ? 'غير معروف' : status;
   }
 }
 
 int compareVersions(String a, String b) {
   List<int> parse(String v) => v.split('.').map((e) => int.tryParse(e.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
-  final pa = parse(a);
-  final pb = parse(b);
+  final pa = parse(a), pb = parse(b);
   final len = pa.length > pb.length ? pa.length : pb.length;
   for (var i = 0; i < len; i++) {
     final va = i < pa.length ? pa[i] : 0;
@@ -168,15 +183,11 @@ int compareVersions(String a, String b) {
   return 0;
 }
 
-extension IsoDate on DateTime {
-  String shortDate() => toIso8601String().substring(0, 10);
-}
-
-class GlassCard extends StatelessWidget {
+class AppCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? color;
-  const GlassCard({super.key, required this.child, this.padding = const EdgeInsets.all(18), this.color});
+  const AppCard({super.key, required this.child, this.padding = const EdgeInsets.all(14), this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -184,44 +195,62 @@ class GlassCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         color: color ?? AppColors.card,
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.border),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(.18), blurRadius: 24, offset: const Offset(0, 12))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(.14), blurRadius: 18, offset: const Offset(0, 10))],
       ),
       child: child,
     );
   }
 }
 
-class RoundIcon extends StatelessWidget {
+class MiniIcon extends StatelessWidget {
   final IconData icon;
   final Color color;
-  final double size;
-  const RoundIcon(this.icon, {super.key, this.color = AppColors.accent, this.size = 44});
+  final double box;
+  const MiniIcon(this.icon, {super.key, this.color = AppColors.primary, this.box = 34});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: color.withOpacity(.14), borderRadius: BorderRadius.circular(16)),
-      child: Icon(icon, color: color, size: size * .52),
+      width: box,
+      height: box,
+      decoration: BoxDecoration(color: color.withOpacity(.13), borderRadius: BorderRadius.circular(12)),
+      child: Icon(icon, color: color, size: 19),
     );
   }
 }
 
-class StatusDot extends StatelessWidget {
+class StatusPill extends StatelessWidget {
   final String status;
-  const StatusDot(this.status, {super.key});
+  const StatusPill(this.status, {super.key});
   @override
   Widget build(BuildContext context) {
-    final c = statusColor(status);
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(width: 7, height: 7, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-      const SizedBox(width: 6),
-      Text(statusLabel(status), style: TextStyle(color: c, fontWeight: FontWeight.w800, fontSize: 12)),
-    ]);
+    final color = statusColor(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withOpacity(.28))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 6, height: 6, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(statusLabel(status), style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w800)),
+      ]),
+    );
   }
+}
+
+class SectionTitle extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  const SectionTitle(this.title, {super.key, this.subtitle});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+      if (subtitle != null) ...[const SizedBox(height: 4), Text(subtitle!, style: const TextStyle(color: AppColors.muted, fontSize: 12.5))],
+    ]),
+  );
 }
 
 class SetupPage extends StatefulWidget {
@@ -231,44 +260,45 @@ class SetupPage extends StatefulWidget {
 }
 
 class _SetupPageState extends State<SetupPage> {
-  final serverController = TextEditingController(text: defaultBackendUrl);
-  final typeController = TextEditingController(text: 'mock');
-  final sasUrlController = TextEditingController(text: 'https://demo.local');
-  final usernameController = TextEditingController(text: 'admin');
-  final passwordController = TextEditingController(text: 'admin123');
-  String message = '';
+  final backend = TextEditingController(text: defaultBackendUrl);
+  final type = TextEditingController(text: 'mock');
+  final sasUrl = TextEditingController(text: 'https://demo.local');
+  final username = TextEditingController(text: 'admin');
+  final password = TextEditingController(text: 'admin123');
   bool loading = false;
-  ApiService get api => ApiService(baseUrl: serverController.text.trim());
+  String message = '';
 
-  Future<void> testConnection() async {
-    setState(() { loading = true; message = 'جاري اختبار الاتصال...'; });
+  ApiService api() => ApiService(baseUrl: backend.text.trim().replaceAll(RegExp(r'/+$'), ''));
+
+  Future<void> test() async {
+    setState(() { loading = true; message = ''; });
     try {
-      final result = await api.testConnection(type: typeController.text.trim(), sasUrl: sasUrlController.text.trim(), username: usernameController.text.trim(), password: passwordController.text.trim());
-      setState(() => message = result['ok'] == true ? 'تم الاتصال بنجاح' : asText(result['message'], 'فشل الاتصال'));
+      final result = await api().testConnection(type: type.text.trim(), sasUrl: sasUrl.text.trim(), username: username.text.trim(), password: password.text.trim());
+      setState(() => message = result['ok'] == true ? 'الاتصال ناجح' : asText(result['message'], 'فشل الاتصال'));
     } catch (e) {
-      setState(() => message = 'خطأ اتصال: $e');
+      setState(() => message = 'فشل الاتصال: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
-  Future<void> saveAndContinue() async {
-    setState(() { loading = true; message = 'جاري الحفظ...'; });
+  Future<void> save() async {
+    setState(() => loading = true);
     try {
-      await api.saveConfig(type: typeController.text.trim(), sasUrl: sasUrlController.text.trim(), username: usernameController.text.trim(), password: passwordController.text.trim());
+      await api().saveConfig(type: type.text.trim(), sasUrl: sasUrl.text.trim(), username: username.text.trim(), password: password.text.trim());
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => HomePage(api: api)));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomePage(api: api())));
     } catch (e) {
-      setState(() => message = 'فشل الحفظ: $e');
+      if (mounted) setState(() => message = 'تعذر الحفظ: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
-  Widget field(String label, TextEditingController c, IconData icon, {bool secret = false}) {
+  Widget input(String label, TextEditingController controller, IconData icon, {bool secret = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(controller: c, obscureText: secret, textDirection: TextDirection.ltr, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon))),
+      child: TextField(controller: controller, obscureText: secret, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon, size: 19))),
     );
   }
 
@@ -277,44 +307,25 @@ class _SetupPageState extends State<SetupPage> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(20),
           children: [
-            const SizedBox(height: 22),
-            Center(
-              child: Column(children: [
-                Container(
-                  width: 88,
-                  height: 88,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppColors.accent, Color(0xFF1E293B)], begin: Alignment.topRight, end: Alignment.bottomLeft),
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  child: const Icon(Icons.router_rounded, color: Colors.white, size: 42),
-                ),
-                const SizedBox(height: 14),
-                const Text('Nodrix', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: AppColors.text)),
-                const Text('إدارة الشبكة والمشتركين', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 16),
+            const Text('Nodrix', textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: .4)),
+            const SizedBox(height: 6),
+            const Text('إدارة المشتركين والشبكات بواجهة عملية', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 24),
+            AppCard(child: Column(children: [
+              input('Backend URL', backend, Icons.cloud_rounded),
+              input('نوع المصدر', type, Icons.hub_rounded),
+              input('رابط الساس', sasUrl, Icons.link_rounded),
+              input('اسم المستخدم', username, Icons.person_rounded),
+              input('كلمة المرور', password, Icons.lock_rounded, secret: true),
+              if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(message, style: const TextStyle(color: AppColors.muted))),
+              Row(children: [
+                Expanded(child: OutlinedButton(onPressed: loading ? null : test, child: const Text('اختبار الاتصال'))),
+                const SizedBox(width: 10),
+                Expanded(child: FilledButton(onPressed: loading ? null : save, child: Text(loading ? 'انتظر...' : 'دخول'))),
               ]),
-            ),
-            const SizedBox(height: 28),
-            GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              const Text('إعداد الاتصال', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 6),
-              const Text('ضع رابط السيرفر ومعلومات الساس التجريبية.', style: TextStyle(color: AppColors.muted)),
-              const SizedBox(height: 18),
-              field('Backend URL', serverController, Icons.dns_rounded),
-              field('SAS Type', typeController, Icons.tune_rounded),
-              field('SAS URL', sasUrlController, Icons.link_rounded),
-              field('Username', usernameController, Icons.person_rounded),
-              field('Password', passwordController, Icons.lock_rounded, secret: true),
-              const SizedBox(height: 8),
-              FilledButton.icon(onPressed: loading ? null : testConnection, icon: const Icon(Icons.wifi_tethering_rounded), label: const Text('اختبار الاتصال')),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(onPressed: loading ? null : saveAndContinue, icon: const Icon(Icons.login_rounded), label: const Text('حفظ ومتابعة')),
-              if (message.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppColors.bg2, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)), child: Text(message)),
-              ],
             ])),
           ],
         ),
@@ -339,8 +350,8 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final pages = [
       CustomersPage(key: ValueKey('customers-$refreshToken'), api: widget.api),
-      DevicesHubPage(key: ValueKey('devices-$refreshToken'), api: widget.api),
       DashboardPage(key: ValueKey('dash-$refreshToken'), api: widget.api),
+      DevicesPage(key: ValueKey('devices-$refreshToken'), api: widget.api),
       MorePage(key: ValueKey('more-$refreshToken'), api: widget.api),
     ];
     return Scaffold(
@@ -348,29 +359,16 @@ class _HomePageState extends State<HomePage> {
       bottomNavigationBar: SafeArea(
         child: Container(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(28), border: Border.all(color: AppColors.border)),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              NavItem(icon: Icons.people_alt_rounded, label: 'المشتركين', selected: index == 0, onTap: () => setState(() => index = 0)),
-              NavItem(icon: Icons.sensors_rounded, label: 'الأجهزة', selected: index == 1, onTap: () => setState(() => index = 1)),
-              NavItem(icon: Icons.bar_chart_rounded, label: 'الإحصائيات', selected: index == 2, onTap: () => setState(() => index = 2)),
-              NavItem(icon: Icons.more_horiz_rounded, label: 'المزيد', selected: index == 3, onTap: () => setState(() => index = 3)),
-            ],
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+          decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.border)),
+          child: Row(children: [
+            NavItem(icon: Icons.people_alt_rounded, label: 'المشتركين', selected: index == 0, onTap: () => setState(() => index = 0)),
+            NavItem(icon: Icons.bar_chart_rounded, label: 'الرئيسية', selected: index == 1, onTap: () => setState(() => index = 1)),
+            NavItem(icon: Icons.router_rounded, label: 'الأجهزة', selected: index == 2, onTap: () => setState(() => index = 2)),
+            NavItem(icon: Icons.more_horiz_rounded, label: 'المزيد', selected: index == 3, onTap: () => setState(() => index = 3)),
+          ]),
         ),
       ),
-      floatingActionButton: index == 0
-          ? FloatingActionButton.extended(
-              backgroundColor: AppColors.bg2,
-              foregroundColor: AppColors.text,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999), side: const BorderSide(color: AppColors.border)),
-              icon: const Icon(Icons.search_rounded),
-              label: const Text('بحث'),
-              onPressed: () {},
-            )
-          : null,
     );
   }
 }
@@ -383,37 +381,41 @@ class NavItem extends StatelessWidget {
   const NavItem({super.key, required this.icon, required this.label, required this.selected, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: selected ? AppColors.text : AppColors.muted),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(fontSize: 12, color: selected ? AppColors.text : AppColors.muted, fontWeight: selected ? FontWeight.w900 : FontWeight.w600)),
-        ]),
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(color: selected ? AppColors.primarySoft : Colors.transparent, borderRadius: BorderRadius.circular(16)),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 20, color: selected ? AppColors.primary : AppColors.muted),
+            const SizedBox(height: 3),
+            Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: selected ? AppColors.text : AppColors.muted)),
+          ]),
+        ),
       ),
     );
   }
 }
 
-class PageShell extends StatelessWidget {
+class PageFrame extends StatelessWidget {
   final String title;
+  final String? subtitle;
+  final Widget? action;
   final List<Widget> children;
-  final Widget? trailing;
-  const PageShell({super.key, required this.title, required this.children, this.trailing});
+  const PageFrame({super.key, required this.title, this.subtitle, this.action, required this.children});
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 110),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 96),
         children: [
-          Row(children: [
-            Expanded(child: Text(title, style: const TextStyle(color: AppColors.text, fontSize: 24, fontWeight: FontWeight.w900))),
-            if (trailing != null) trailing!,
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: SectionTitle(title, subtitle: subtitle)),
+            if (action != null) action!,
           ]),
-          const SizedBox(height: 18),
           ...children,
         ],
       ),
@@ -432,7 +434,6 @@ class _CustomersPageState extends State<CustomersPage> {
   late Future<List<Map<String, dynamic>>> future;
   String query = '';
   String filter = 'all';
-  bool sortDebt = false;
 
   @override
   void initState() {
@@ -443,54 +444,30 @@ class _CustomersPageState extends State<CustomersPage> {
   void reload() => setState(() => future = widget.api.getCustomers());
 
   Future<void> addCustomer() async {
-    final ok = await Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: widget.api)));
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: widget.api)));
     if (ok == true) reload();
   }
 
-  void openFilters() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.card,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(34))),
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Center(child: Container(width: 72, height: 6, decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(99)))),
-            const SizedBox(height: 22),
-            const Text('الترتيب حسب', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 16),
-            Wrap(spacing: 10, runSpacing: 10, children: [
-              filterChip('all', 'الكل'),
-              filterChip('active', 'متصل'),
-              filterChip('expires_soon', 'قريب الانتهاء'),
-              filterChip('expired', 'منتهي'),
-              ChoiceChip(label: const Text('دين المشترك'), selected: sortDebt, onSelected: (v) => setState(() { sortDebt = v; Navigator.pop(context); })),
-            ]),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget filterChip(String value, String label) => ChoiceChip(
-        label: Text(label),
-        selected: filter == value,
-        onSelected: (_) => setState(() { filter = value; Navigator.pop(context); }),
-      );
-
-  List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> all) {
-    var list = all.where((c) {
-      final q = query.trim().toLowerCase();
-      final matchesQuery = q.isEmpty || ['name', 'username', 'phone', 'tower', 'sector'].any((k) => asText(c[k], '').toLowerCase().contains(q));
-      final matchesFilter = filter == 'all' || asText(c['status']) == filter;
+  List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> items) {
+    return items.where((c) {
+      final q = query.trim();
+      final matchesQuery = q.isEmpty || '${c['name']} ${c['phone']} ${c['tower']} ${c['sector']}'.contains(q);
+      final matchesFilter = filter == 'all' || c['status'] == filter;
       return matchesQuery && matchesFilter;
     }).toList();
-    if (sortDebt) {
-      list.sort((a, b) => (int.tryParse(asText(b['debt'], '0')) ?? 0).compareTo(int.tryParse(asText(a['debt'], '0')) ?? 0));
-    }
-    return list;
+  }
+
+  Widget chip(String value, String label) {
+    final selected = filter == value;
+    return ChoiceChip(
+      selected: selected,
+      label: Text(label),
+      labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: selected ? Colors.white : AppColors.muted),
+      selectedColor: AppColors.primary,
+      backgroundColor: AppColors.panel,
+      side: const BorderSide(color: AppColors.border),
+      onSelected: (_) => setState(() => filter = value),
+    );
   }
 
   @override
@@ -498,34 +475,25 @@ class _CustomersPageState extends State<CustomersPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: future,
       builder: (context, snapshot) {
-        final customers = snapshot.hasData ? applyFilters(snapshot.data!) : <Map<String, dynamic>>[];
-        return PageShell(
+        final items = applyFilters(snapshot.data ?? []);
+        return PageFrame(
           title: 'المشتركين',
-          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-            IconButton.filledTonal(onPressed: addCustomer, icon: const Icon(Icons.add_rounded)),
-            const SizedBox(width: 8),
-            IconButton.filledTonal(onPressed: openFilters, icon: const Icon(Icons.tune_rounded)),
-          ]),
+          subtitle: 'إدارة الاشتراكات والدفعات',
+          action: FilledButton.icon(onPressed: addCustomer, icon: const Icon(Icons.add_rounded, size: 19), label: const Text('إضافة')),
           children: [
-            Row(children: [
-              Expanded(
-                child: TextField(
-                  onChanged: (v) => setState(() => query = v),
-                  decoration: const InputDecoration(hintText: 'بحث عن مشترك', prefixIcon: Icon(Icons.search_rounded)),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 18),
-            if (snapshot.hasError) GlassCard(child: Text('تعذر جلب المشتركين: ${snapshot.error}', style: const TextStyle(color: AppColors.red)))
-            else if (!snapshot.hasData) const Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator()))
-            else if (customers.isEmpty) const GlassCard(child: Center(child: Text('لا توجد نتائج', style: TextStyle(color: AppColors.muted))))
-            else ...customers.map((c) => Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: CustomerTile(customer: c, onTap: () async {
-                    final ok = await Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailsPage(api: widget.api, customer: c)));
-                    if (ok == true) reload();
-                  }),
-                )),
+            TextField(
+              onChanged: (v) => setState(() => query = v),
+              decoration: const InputDecoration(hintText: 'بحث بالاسم أو الهاتف أو البرج', prefixIcon: Icon(Icons.search_rounded, size: 19)),
+            ),
+            const SizedBox(height: 10),
+            SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+              chip('all', 'الكل'), const SizedBox(width: 8), chip('active', 'فعال'), const SizedBox(width: 8), chip('expires_soon', 'قريب'), const SizedBox(width: 8), chip('expired', 'منتهي'), const SizedBox(width: 8), chip('paused', 'موقوف'),
+            ])),
+            const SizedBox(height: 14),
+            if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+            if (snapshot.hasError) AppCard(child: Text('تعذر جلب المشتركين: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
+            if (snapshot.hasData && items.isEmpty) const AppCard(child: Text('لا توجد نتائج مطابقة', style: TextStyle(color: AppColors.muted))),
+            for (final customer in items) Padding(padding: const EdgeInsets.only(bottom: 12), child: CustomerCard(api: widget.api, customer: customer, onChanged: reload)),
           ],
         );
       },
@@ -533,63 +501,73 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 }
 
-class CustomerTile extends StatelessWidget {
+class CustomerCard extends StatelessWidget {
+  final ApiService api;
   final Map<String, dynamic> customer;
-  final VoidCallback onTap;
-  const CustomerTile({super.key, required this.customer, required this.onTap});
+  final VoidCallback onChanged;
+  const CustomerCard({super.key, required this.api, required this.customer, required this.onChanged});
 
-  int get remainingDays {
-    final date = DateTime.tryParse(asText(customer['expiresAt'], ''));
-    if (date == null) return 0;
-    return date.difference(DateTime.now()).inDays;
+  Future<void> details(BuildContext context) async {
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerDetailsPage(api: api, customer: customer)));
+    if (ok == true) onChanged();
+  }
+
+  Future<void> edit(BuildContext context) async {
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: api, customer: customer)));
+    if (ok == true) onChanged();
+  }
+
+  Future<void> pay(BuildContext context) async {
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
+    if (ok == true) onChanged();
   }
 
   @override
   Widget build(BuildContext context) {
     final status = asText(customer['status'], 'active');
-    final days = remainingDays;
-    return InkWell(
-      borderRadius: BorderRadius.circular(28),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: AppColors.bg2, borderRadius: BorderRadius.circular(28), border: Border.all(color: AppColors.border)),
-        child: Row(children: [
-          Container(
-            width: 86,
-            height: 96,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: status == 'expired' ? [const Color(0xFF475569), const Color(0xFF1F2937)] : [AppColors.accent, const Color(0xFF075985)], begin: Alignment.topCenter, end: Alignment.bottomCenter),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(days <= 0 ? '—' : '$days', style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.w900)),
-              Text(days <= 0 ? 'محجوب' : 'يوم', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 4),
-              Text(days <= 0 ? '' : '14 ساعة', style: const TextStyle(color: Colors.white70, fontSize: 11)),
-            ]),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asText(customer['name']), style: const TextStyle(fontSize: 18, color: AppColors.text, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 4),
-              StatusDot(status),
-              const SizedBox(height: 8),
-              Text(money(customer['price']), style: const TextStyle(color: AppColors.text, fontSize: 17, fontWeight: FontWeight.w900), textDirection: TextDirection.rtl),
-              const SizedBox(height: 4),
-              Text(asText(customer['username']), style: const TextStyle(color: AppColors.muted), textDirection: TextDirection.ltr),
-            ]),
-          ),
-          Column(children: [
-            const RoundIcon(Icons.check_rounded, color: Color(0xFF334155), size: 28),
-            const SizedBox(height: 10),
-            Text(asText(customer['tower'], 'LAN --'), style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-          ]),
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          MiniIcon(Icons.person_rounded, color: statusColor(status), box: 32),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(asText(customer['name']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 3),
+            Text(asText(customer['phone']), style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+          ])),
+          StatusPill(status),
         ]),
-      ),
+        const SizedBox(height: 12),
+        Container(height: 1, color: AppColors.border),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: _MiniInfo('الباقة', asText(customer['package']))),
+          Expanded(child: _MiniInfo('السعر', money(customer['price']))),
+          Expanded(child: _MiniInfo('الانتهاء', asText(customer['expiresAt']))),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: OutlinedButton(onPressed: () => details(context), child: const Text('تفاصيل'))),
+          const SizedBox(width: 8),
+          Expanded(child: OutlinedButton(onPressed: () => edit(context), child: const Text('تعديل'))),
+          const SizedBox(width: 8),
+          Expanded(child: FilledButton(onPressed: () => pay(context), child: const Text('دفعة'))),
+        ]),
+      ]),
     );
   }
+}
+
+class _MiniInfo extends StatelessWidget {
+  final String label, value;
+  const _MiniInfo(this.label, this.value);
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(label, style: const TextStyle(color: AppColors.faint, fontSize: 11.5, fontWeight: FontWeight.w700)),
+    const SizedBox(height: 4),
+    Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800)),
+  ]);
 }
 
 class CustomerDetailsPage extends StatelessWidget {
@@ -597,66 +575,70 @@ class CustomerDetailsPage extends StatelessWidget {
   final Map<String, dynamic> customer;
   const CustomerDetailsPage({super.key, required this.api, required this.customer});
 
-  Future<bool?> edit(BuildContext context) => Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: api, customer: customer)));
-  Future<bool?> payment(BuildContext context) => Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
+  Future<void> edit(BuildContext context) async {
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: api, customer: customer)));
+    if (ok == true && context.mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> pay(BuildContext context) async {
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
+    if (ok == true && context.mounted) Navigator.pop(context, true);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('تفاصيل المشترك')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 12, 20, 40), children: [
-        GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+        AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const RoundIcon(Icons.person_rounded, color: AppColors.accent, size: 58),
-            const SizedBox(width: 14),
+            MiniIcon(Icons.person_rounded, color: statusColor(asText(customer['status'], 'active')), box: 36),
+            const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asText(customer['name']), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+              Text(asText(customer['name']), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
               const SizedBox(height: 4),
-              StatusDot(asText(customer['status'], 'active')),
-              Text(asText(customer['username']), style: const TextStyle(color: AppColors.muted), textDirection: TextDirection.ltr),
+              Text(asText(customer['phone']), style: const TextStyle(color: AppColors.muted)),
             ])),
+            StatusPill(asText(customer['status'], 'active')),
           ]),
-          const SizedBox(height: 18),
-          Wrap(spacing: 10, runSpacing: 10, children: [
-            InfoBox('الهاتف', customer['phone'], Icons.phone_rounded),
-            InfoBox('الباقة', customer['package'], Icons.speed_rounded),
-            InfoBox('السعر', money(customer['price']), Icons.payments_rounded),
-            InfoBox('البرج', customer['tower'], Icons.cell_tower_rounded),
-            InfoBox('السكتر', customer['sector'], Icons.router_rounded),
-            InfoBox('الانتهاء', customer['expiresAt'], Icons.event_busy_rounded),
-          ]),
-          const SizedBox(height: 18),
-          Text('ملاحظات', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900)),
-          const SizedBox(height: 8),
-          Text(asText(customer['notes'], 'لا توجد ملاحظات'), style: const TextStyle(color: AppColors.muted)),
+        ])),
+        const SizedBox(height: 12),
+        AppCard(child: Column(children: [
+          InfoLine('الباقة', asText(customer['package']), Icons.speed_rounded),
+          InfoLine('السعر', money(customer['price']), Icons.payments_rounded),
+          InfoLine('تاريخ البداية', asText(customer['startAt']), Icons.calendar_month_rounded),
+          InfoLine('تاريخ الانتهاء', asText(customer['expiresAt']), Icons.event_busy_rounded),
+          InfoLine('البرج', asText(customer['tower']), Icons.cell_tower_rounded),
+          InfoLine('السكتر', asText(customer['sector']), Icons.settings_input_antenna_rounded),
+          InfoLine('الدين', money(customer['debt']), Icons.account_balance_wallet_rounded),
+          InfoLine('ملاحظات', asText(customer['notes']), Icons.notes_rounded, last: true),
         ])),
         const SizedBox(height: 14),
         Row(children: [
-          Expanded(child: FilledButton.icon(onPressed: () async { final ok = await edit(context); if (ok == true && context.mounted) Navigator.pop(context, true); }, icon: const Icon(Icons.edit_rounded), label: const Text('تعديل'))),
+          Expanded(child: OutlinedButton.icon(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded, size: 18), label: const Text('تعديل'))),
           const SizedBox(width: 10),
-          Expanded(child: OutlinedButton.icon(onPressed: () async { final ok = await payment(context); if (ok == true && context.mounted) Navigator.pop(context, true); }, icon: const Icon(Icons.payments_rounded), label: const Text('دفعة'))),
+          Expanded(child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 18), label: const Text('تسجيل دفعة'))),
         ]),
       ]),
     );
   }
 }
 
-class InfoBox extends StatelessWidget {
-  final String label;
-  final dynamic value;
+class InfoLine extends StatelessWidget {
+  final String label, value;
   final IconData icon;
-  const InfoBox(this.label, this.value, this.icon, {super.key});
+  final bool last;
+  const InfoLine(this.label, this.value, this.icon, {super.key, this.last = false});
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 130),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: AppColors.bg2, borderRadius: BorderRadius.circular(18), border: Border.all(color: AppColors.border)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: AppColors.muted, size: 18),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-        Text(asText(value), style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.w900)),
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 12),
+      child: Row(children: [
+        Icon(icon, size: 18, color: AppColors.muted),
+        const SizedBox(width: 10),
+        Expanded(child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12.5))),
+        const SizedBox(width: 10),
+        Flexible(child: Text(value, textAlign: TextAlign.left, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13))),
       ]),
     );
   }
@@ -671,9 +653,7 @@ class CustomerFormPage extends StatefulWidget {
 }
 
 class _CustomerFormPageState extends State<CustomerFormPage> {
-  final formKey = GlobalKey<FormState>();
-  late final TextEditingController name, phone, username, packageName, price, tower, sector, address, startedAt, expiresAt, notes;
-  String status = 'active';
+  late final TextEditingController name, phone, package, speed, price, tower, sector, startAt, expiresAt, address, notes, debt;
   bool saving = false;
   bool get editing => widget.customer != null;
 
@@ -683,38 +663,40 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     final c = widget.customer ?? {};
     name = TextEditingController(text: asText(c['name'], ''));
     phone = TextEditingController(text: asText(c['phone'], ''));
-    username = TextEditingController(text: asText(c['username'], ''));
-    packageName = TextEditingController(text: asText(c['package'], 'ECO++'));
+    package = TextEditingController(text: asText(c['package'], 'باقة منزلي'));
+    speed = TextEditingController(text: asText(c['speed'], '25 Mbps'));
     price = TextEditingController(text: asText(c['price'], '25000'));
-    tower = TextEditingController(text: asText(c['tower'], 'admin@samer'));
-    sector = TextEditingController(text: asText(c['sector'], 'SR1'));
+    tower = TextEditingController(text: asText(c['tower'], ''));
+    sector = TextEditingController(text: asText(c['sector'], ''));
+    startAt = TextEditingController(text: asText(c['startAt'], todayIso()));
+    expiresAt = TextEditingController(text: asText(c['expiresAt'], afterDays(30)));
     address = TextEditingController(text: asText(c['address'], ''));
-    startedAt = TextEditingController(text: asText(c['startedAt'], DateTime.now().shortDate()));
-    expiresAt = TextEditingController(text: asText(c['expiresAt'], DateTime.now().add(const Duration(days: 30)).shortDate()));
     notes = TextEditingController(text: asText(c['notes'], ''));
-    status = asText(c['status'], 'active');
+    debt = TextEditingController(text: asText(c['debt'], '0'));
   }
 
-  Map<String, dynamic> payload() => {
-    'name': name.text.trim(),
-    'phone': phone.text.trim(),
-    'username': username.text.trim(),
-    'package': packageName.text.trim(),
-    'price': int.tryParse(price.text.trim()) ?? 0,
-    'tower': tower.text.trim(),
-    'sector': sector.text.trim(),
-    'address': address.text.trim(),
-    'startedAt': startedAt.text.trim(),
-    'expiresAt': expiresAt.text.trim(),
-    'notes': notes.text.trim(),
-    'status': status,
-  };
-
   Future<void> save() async {
-    if (!formKey.currentState!.validate()) return;
+    if (name.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اكتب اسم المشترك')));
+      return;
+    }
     setState(() => saving = true);
+    final data = {
+      'name': name.text.trim(),
+      'phone': phone.text.trim(),
+      'package': package.text.trim(),
+      'speed': speed.text.trim(),
+      'price': asInt(price.text),
+      'tower': tower.text.trim(),
+      'sector': sector.text.trim(),
+      'startAt': startAt.text.trim(),
+      'expiresAt': expiresAt.text.trim(),
+      'address': address.text.trim(),
+      'notes': notes.text.trim(),
+      'debt': asInt(debt.text),
+    };
     try {
-      final result = editing ? await widget.api.updateCustomer(widget.customer!['id'], payload()) : await widget.api.addCustomer(payload());
+      final result = editing ? await widget.api.updateCustomer(widget.customer!['id'], data) : await widget.api.addCustomer(data);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(asText(result['message'], 'تم الحفظ'))));
       if (result['ok'] == true) Navigator.pop(context, true);
@@ -725,16 +707,15 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     }
   }
 
-  Widget input(String label, TextEditingController c, IconData icon, {bool required = false, TextInputType? type, int maxLines = 1}) {
+  Widget input(String label, TextEditingController controller, IconData icon, {TextInputType? type, int maxLines = 1}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextFormField(
-        controller: c,
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
         keyboardType: type,
         maxLines: maxLines,
-        textDirection: type == TextInputType.phone || type == TextInputType.number ? TextDirection.ltr : TextDirection.rtl,
-        validator: required ? (v) => (v == null || v.trim().isEmpty) ? 'مطلوب' : null : null,
-        decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+        textDirection: type == TextInputType.number ? TextDirection.ltr : TextDirection.rtl,
+        decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon, size: 18)),
       ),
     );
   }
@@ -743,51 +724,24 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(editing ? 'تعديل مشترك' : 'إضافة مشترك')),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: FilledButton(onPressed: saving ? null : save, child: Text(editing ? 'حفظ التعديل' : 'إضافة')),
-        ),
-      ),
-      body: Form(
-        key: formKey,
-        child: ListView(padding: const EdgeInsets.fromLTRB(20, 12, 20, 120), children: [
-          GlassCard(child: Column(children: [
-            Row(children: [
-              Expanded(child: DropdownButtonFormField<String>(
-                value: status,
-                decoration: const InputDecoration(labelText: 'الوقت'),
-                items: const [
-                  DropdownMenuItem(value: 'active', child: Text('فعال')),
-                  DropdownMenuItem(value: 'expires_soon', child: Text('قريب من الانتهاء')),
-                  DropdownMenuItem(value: 'expired', child: Text('منتهي')),
-                  DropdownMenuItem(value: 'paused', child: Text('موقوف')),
-                ],
-                onChanged: (v) => setState(() => status = v ?? 'active'),
-              )),
-              const SizedBox(width: 12),
-              Expanded(child: input('اليوزر', username, Icons.person_pin_rounded)),
-            ]),
-            input('الاسم', name, Icons.person_rounded, required: true),
-            input('النوع', packageName, Icons.check_circle_rounded, required: true),
-            input('كلمة المرور', notes, Icons.password_rounded),
-            input('رقم الهاتف الأول (هاتف + واتساب)', phone, Icons.phone_rounded, required: true, type: TextInputType.phone),
-            input('رقم الهاتف الثاني (هاتف فقط)', TextEditingController(), Icons.phone_in_talk_rounded, type: TextInputType.phone),
-            input('ديون سابقة', price, Icons.payments_rounded, type: TextInputType.number),
-            input('IP النانو', address, Icons.hub_rounded),
-            Row(children: [
-              Expanded(child: input('البرج', tower, Icons.cell_tower_rounded)),
-              const SizedBox(width: 12),
-              Expanded(child: input('باسورد', sector, Icons.router_rounded)),
-            ]),
-            Row(children: [
-              Expanded(child: input('بداية الاشتراك', startedAt, Icons.event_available_rounded)),
-              const SizedBox(width: 12),
-              Expanded(child: input('نهاية الاشتراك', expiresAt, Icons.event_busy_rounded)),
-            ]),
-          ])),
-        ]),
-      ),
+      body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+        AppCard(child: Column(children: [
+          input('اسم المشترك', name, Icons.person_rounded),
+          input('الهاتف', phone, Icons.phone_rounded, type: TextInputType.phone),
+          input('الباقة', package, Icons.speed_rounded),
+          input('السرعة', speed, Icons.bolt_rounded),
+          input('السعر', price, Icons.payments_rounded, type: TextInputType.number),
+          input('الدين', debt, Icons.account_balance_wallet_rounded, type: TextInputType.number),
+          input('البرج', tower, Icons.cell_tower_rounded),
+          input('السكتر', sector, Icons.settings_input_antenna_rounded),
+          input('تاريخ البداية', startAt, Icons.calendar_today_rounded),
+          input('تاريخ الانتهاء', expiresAt, Icons.event_busy_rounded),
+          input('العنوان', address, Icons.location_on_rounded),
+          input('ملاحظات', notes, Icons.notes_rounded, maxLines: 2),
+          const SizedBox(height: 4),
+          FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded, size: 18), label: Text(saving ? 'جاري الحفظ...' : editing ? 'حفظ التعديل' : 'إضافة المشترك')),
+        ])),
+      ]),
     );
   }
 }
@@ -809,14 +763,14 @@ class _PaymentPageState extends State<PaymentPage> {
   void initState() {
     super.initState();
     amount = TextEditingController(text: asText(widget.customer['price'], ''));
-    date = TextEditingController(text: DateTime.now().shortDate());
-    expiresAt = TextEditingController(text: DateTime.now().add(const Duration(days: 30)).shortDate());
+    date = TextEditingController(text: todayIso());
+    expiresAt = TextEditingController(text: afterDays(30));
   }
 
   Future<void> save() async {
     setState(() => saving = true);
     try {
-      final result = await widget.api.addPayment(widget.customer['id'], {'amount': int.tryParse(amount.text.trim()) ?? 0, 'date': date.text.trim(), 'expiresAt': expiresAt.text.trim(), 'note': note.text.trim()});
+      final result = await widget.api.addPayment(widget.customer['id'], {'amount': asInt(amount.text), 'date': date.text.trim(), 'expiresAt': expiresAt.text.trim(), 'note': note.text.trim()});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(asText(result['message'], 'تمت العملية'))));
       if (result['ok'] == true) Navigator.pop(context, true);
@@ -828,139 +782,22 @@ class _PaymentPageState extends State<PaymentPage> {
   }
 
   Widget input(String label, TextEditingController c, IconData icon, {TextInputType? type}) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: TextField(controller: c, keyboardType: type, textDirection: type == TextInputType.number ? TextDirection.ltr : TextDirection.rtl, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon))),
+    padding: const EdgeInsets.only(bottom: 12),
+    child: TextField(controller: c, keyboardType: type, textDirection: type == TextInputType.number ? TextDirection.ltr : TextDirection.rtl, decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon, size: 18))),
   );
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: const Text('تسجيل دفعة')), body: ListView(padding: const EdgeInsets.all(20), children: [
-      GlassCard(child: Column(children: [
+    return Scaffold(appBar: AppBar(title: const Text('تسجيل دفعة')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+      AppCard(child: Column(children: [
         input('المبلغ', amount, Icons.payments_rounded, type: TextInputType.number),
         input('تاريخ الدفع', date, Icons.calendar_today_rounded),
         input('تاريخ الانتهاء الجديد', expiresAt, Icons.event_busy_rounded),
         input('ملاحظة', note, Icons.notes_rounded),
-        FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded), label: const Text('حفظ الدفعة')),
+        FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded, size: 18), label: const Text('حفظ الدفعة')),
       ])),
     ]));
   }
-}
-
-class DevicesHubPage extends StatefulWidget {
-  final ApiService api;
-  const DevicesHubPage({super.key, required this.api});
-  @override
-  State<DevicesHubPage> createState() => _DevicesHubPageState();
-}
-
-class _DevicesHubPageState extends State<DevicesHubPage> with SingleTickerProviderStateMixin {
-  late final TabController tab = TabController(length: 4, vsync: this);
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(child: Column(children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-        child: Row(children: [
-          Expanded(child: Container(height: 54, decoration: BoxDecoration(color: AppColors.bg2, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.border)), child: const Center(child: Text('الكل', style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w900))))),
-          const SizedBox(width: 14),
-          IconButton.filledTonal(onPressed: () {}, icon: const Icon(Icons.tune_rounded)),
-        ]),
-      ),
-      TabBar(controller: tab, labelColor: AppColors.accent2, unselectedLabelColor: AppColors.muted, indicatorColor: AppColors.accent2, tabs: const [Tab(text: 'Sector'), Tab(text: 'Link'), Tab(text: 'Switch'), Tab(text: 'Ping')]),
-      Expanded(child: TabBarView(controller: tab, children: [
-        DeviceList(title: 'السكاترات', loader: widget.api.getSectors, sectorStyle: true),
-        DeviceList(title: 'اللنكات', loader: widget.api.getLinks),
-        const ComingSoon(label: 'السويتجات'),
-        const ComingSoon(label: 'Ping Tools'),
-      ])),
-    ]));
-  }
-}
-
-class DeviceList extends StatelessWidget {
-  final String title;
-  final Future<List<dynamic>> Function() loader;
-  final bool sectorStyle;
-  const DeviceList({super.key, required this.title, required this.loader, this.sectorStyle = false});
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<dynamic>>(
-      future: loader(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('خطأ: ${snapshot.error}'));
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final items = snapshot.data!;
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
-          itemCount: items.length,
-          itemBuilder: (_, i) => Padding(padding: const EdgeInsets.only(bottom: 16), child: DeviceCard(item: Map<String, dynamic>.from(items[i] as Map), sectorStyle: sectorStyle)),
-        );
-      },
-    );
-  }
-}
-
-class DeviceCard extends StatelessWidget {
-  final Map<String, dynamic> item;
-  final bool sectorStyle;
-  const DeviceCard({super.key, required this.item, required this.sectorStyle});
-  @override
-  Widget build(BuildContext context) {
-    final online = asText(item['status'], 'online') == 'online';
-    return Container(
-      decoration: BoxDecoration(color: AppColors.card, borderRadius: BorderRadius.circular(30), border: Border.all(color: AppColors.border)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: online ? [const Color(0xFF0F4C75), const Color(0xFF075985)] : [const Color(0xFF334155), const Color(0xFF111827)]),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-          ),
-          child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asText(item['name'], 'SR'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
-              const SizedBox(height: 8),
-              Row(children: [const Icon(Icons.language_rounded, size: 18, color: Colors.white70), const SizedBox(width: 6), Text(asText(item['ip'], '10.43.226.200'), style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w800))]),
-            ])),
-            Container(width: 82, height: 118, decoration: BoxDecoration(color: Colors.white.withOpacity(.88), borderRadius: BorderRadius.circular(18)), child: Icon(sectorStyle ? Icons.router_rounded : Icons.hub_rounded, color: Colors.blueGrey, size: 46)),
-          ]),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(14),
-          child: Wrap(spacing: 10, runSpacing: 10, children: [
-            DeviceMetric('8', 'Clients', Icons.people_rounded),
-            DeviceMetric(asText(item['rx'], '1.60 Mbps'), 'Rx', Icons.south_rounded),
-            DeviceMetric(asText(item['tx'], '0.88 Mbps'), 'Tx', Icons.north_rounded),
-            DeviceMetric(asText(item['ethernet'], '100 Mbps'), 'Ethernet', Icons.settings_ethernet_rounded),
-            DeviceMetric(asText(item['noise'], '-88 dBm'), 'Noise', Icons.grain_rounded),
-            DeviceMetric(asText(item['uptime'], '2d 5h 17m'), 'Uptime', Icons.timer_rounded),
-          ]),
-        ),
-      ]),
-    );
-  }
-}
-
-class DeviceMetric extends StatelessWidget {
-  final String value, label;
-  final IconData icon;
-  const DeviceMetric(this.value, this.label, this.icon, {super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: 100, padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: AppColors.bg2, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.border)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Icon(icon, color: AppColors.muted, size: 17),
-      const SizedBox(height: 6),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
-      Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-    ]));
-  }
-}
-
-class ComingSoon extends StatelessWidget {
-  final String label;
-  const ComingSoon({super.key, required this.label});
-  @override
-  Widget build(BuildContext context) => Center(child: GlassCard(child: Text('$label - قريبًا', style: const TextStyle(fontWeight: FontWeight.w900))));
 }
 
 class DashboardPage extends StatelessWidget {
@@ -972,23 +809,23 @@ class DashboardPage extends StatelessWidget {
       future: api.getDashboard(),
       builder: (context, snapshot) {
         final data = snapshot.data ?? {};
-        return PageShell(title: 'الإحصائيات', children: [
-          if (!snapshot.hasData && !snapshot.hasError) const Center(child: CircularProgressIndicator()),
-          if (snapshot.hasError) GlassCard(child: Text('خطأ: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
+        return PageFrame(title: 'الرئيسية', subtitle: 'نظرة مختصرة على العمل اليومي', children: [
+          if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+          if (snapshot.hasError) AppCard(child: Text('خطأ: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
           if (snapshot.hasData) ...[
-            GlassCard(color: AppColors.card2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Icon(Icons.lightbulb_rounded, color: AppColors.gold),
-              const SizedBox(height: 8),
-              BigStat('عدد المشتركين', asText(data['totalCustomers'], '0')),
-              BigStat('الدين الكلي', money(data['totalDebt'] ?? 3410000)),
-              BigStat('الإيداع الكلي', money(data['incomeToday'] ?? 0)),
+            AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [const MiniIcon(Icons.stacked_bar_chart_rounded, color: AppColors.primary), const SizedBox(width: 10), Expanded(child: Text('ملخص الحسابات', style: Theme.of(context).textTheme.titleMedium))]),
+              const SizedBox(height: 14),
+              MetricLine('عدد المشتركين', asText(data['totalCustomers'], '0')),
+              MetricLine('الدين الكلي', money(data['totalDebt'] ?? 0)),
+              MetricLine('دخل اليوم', money(data['incomeToday'] ?? 0), last: true),
             ])),
-            const SizedBox(height: 16),
-            GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.2, children: [
-              StatCard('فعال', asText(data['activeCustomers'], '0'), Icons.check_circle_rounded, AppColors.green),
-              StatCard('قريب الانتهاء', asText(data['expiresSoon'], '0'), Icons.warning_rounded, AppColors.orange),
-              StatCard('منتهي', asText(data['expiredCustomers'], '0'), Icons.cancel_rounded, AppColors.red),
-              StatCard('دخل الشهر', money(data['incomeMonth'] ?? 0), Icons.payments_rounded, AppColors.accent),
+            const SizedBox(height: 12),
+            GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.45, children: [
+              StatCard('فعال', asText(data['activeCustomers'], '0'), Icons.check_rounded, AppColors.green),
+              StatCard('قريب الانتهاء', asText(data['expiresSoon'], '0'), Icons.priority_high_rounded, AppColors.warning),
+              StatCard('منتهي', asText(data['expiredCustomers'], '0'), Icons.close_rounded, AppColors.red),
+              StatCard('دخل الشهر', money(data['incomeMonth'] ?? 0), Icons.payments_rounded, AppColors.primary),
             ]),
           ],
         ]);
@@ -997,11 +834,15 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-class BigStat extends StatelessWidget {
+class MetricLine extends StatelessWidget {
   final String label, value;
-  const BigStat(this.label, this.value, {super.key});
+  final bool last;
+  const MetricLine(this.label, this.value, {super.key, this.last = false});
   @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Row(children: [Expanded(child: Text(label, style: const TextStyle(color: AppColors.muted))), Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900))]));
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: last ? 0 : 10),
+    child: Row(children: [Expanded(child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 13))), Text(value, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15))]),
+  );
 }
 
 class StatCard extends StatelessWidget {
@@ -1010,7 +851,68 @@ class StatCard extends StatelessWidget {
   final Color color;
   const StatCard(this.title, this.value, this.icon, this.color, {super.key});
   @override
-  Widget build(BuildContext context) => GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [RoundIcon(icon, color: color), Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)), Text(title, style: const TextStyle(color: AppColors.muted, fontWeight: FontWeight.w700))]));
+  Widget build(BuildContext context) => AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    MiniIcon(icon, color: color, box: 32),
+    Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+    Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w700)),
+  ]));
+}
+
+class DevicesPage extends StatelessWidget {
+  final ApiService api;
+  const DevicesPage({super.key, required this.api});
+  @override
+  Widget build(BuildContext context) {
+    return PageFrame(title: 'الأجهزة', subtitle: 'عرض أولي للأجهزة واللنكات', children: [
+      FutureBuilder<List<dynamic>>(
+        future: api.getSectors(),
+        builder: (context, snapshot) => DeviceSection(title: 'السكاترات', items: snapshot.data ?? [], loading: !snapshot.hasData && !snapshot.hasError),
+      ),
+      const SizedBox(height: 14),
+      FutureBuilder<List<dynamic>>(
+        future: api.getLinks(),
+        builder: (context, snapshot) => DeviceSection(title: 'اللنكات', items: snapshot.data ?? [], loading: !snapshot.hasData && !snapshot.hasError),
+      ),
+    ]);
+  }
+}
+
+class DeviceSection extends StatelessWidget {
+  final String title;
+  final List<dynamic> items;
+  final bool loading;
+  const DeviceSection({super.key, required this.title, required this.items, required this.loading});
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 12),
+      if (loading) const LinearProgressIndicator(minHeight: 2),
+      if (!loading && items.isEmpty) const Text('لا توجد بيانات حاليًا', style: TextStyle(color: AppColors.muted)),
+      for (final raw in items) DeviceRow(item: Map<String, dynamic>.from(raw as Map)),
+    ]));
+  }
+}
+
+class DeviceRow extends StatelessWidget {
+  final Map<String, dynamic> item;
+  const DeviceRow({super.key, required this.item});
+  @override
+  Widget build(BuildContext context) {
+    final status = asText(item['status'], 'offline');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(children: [
+        MiniIcon(Icons.router_rounded, color: statusColor(status), box: 30),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(asText(item['name']), style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(asText(item['ip'] ?? item['ipAddress'], 'IP غير محدد'), style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+        ])),
+        StatusPill(status),
+      ]),
+    );
+  }
 }
 
 class MorePage extends StatelessWidget {
@@ -1018,40 +920,57 @@ class MorePage extends StatelessWidget {
   const MorePage({super.key, required this.api});
   @override
   Widget build(BuildContext context) {
-    return PageShell(title: 'المزيد', children: [
-      GlassCard(child: Column(children: [
-        MoreTile(icon: Icons.person_rounded, label: 'حسابي', color: Colors.blue, onTap: () {}),
-        MoreTile(icon: Icons.dashboard_rounded, label: 'اللوحات', color: Colors.deepPurple, onTap: () {}),
-        MoreTile(icon: Icons.history_rounded, label: 'سجل العمليات', color: Colors.indigo, onTap: () {}),
-        MoreTile(icon: Icons.picture_as_pdf_rounded, label: 'تصدير ملف PDF', color: Colors.red, onTap: () {}),
-      ])),
-      const SizedBox(height: 14),
-      GlassCard(child: Column(children: [
-        MoreTile(icon: Icons.notifications_rounded, label: 'إرسال إشعار', color: Colors.amber, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemindersPage(api: api)))),
-        MoreTile(icon: Icons.sync_rounded, label: 'التنبيهات التلقائية', color: Colors.purple, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemindersPage(api: api)))),
-        MoreTile(icon: Icons.system_update_rounded, label: 'التحديثات', color: Colors.cyan, onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UpdatesPage(api: api)))),
-        MoreTile(icon: Icons.settings_rounded, label: 'الإعدادات', color: Colors.blueGrey, onTap: () {}),
-      ])),
-      const SizedBox(height: 14),
-      GlassCard(child: MoreTile(icon: Icons.telegram_rounded, label: 'أكثر عن التطبيق\n$currentAppVersion', color: Colors.lightBlue, onTap: () {})),
+    return PageFrame(title: 'المزيد', subtitle: 'إعدادات وأدوات النظام', children: [
+      MoreSection(title: 'الحساب', children: [
+        MoreTile(icon: Icons.person_rounded, label: 'حسابي', onTap: () {}),
+        MoreTile(icon: Icons.history_rounded, label: 'سجل العمليات', onTap: () {}),
+      ]),
+      const SizedBox(height: 12),
+      MoreSection(title: 'النظام', children: [
+        MoreTile(icon: Icons.notifications_rounded, label: 'التنبيهات', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RemindersPage(api: api)))),
+        MoreTile(icon: Icons.system_update_rounded, label: 'التحديثات', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UpdatesPage(api: api)))),
+        MoreTile(icon: Icons.settings_rounded, label: 'الإعدادات', onTap: () {}),
+      ]),
+      const SizedBox(height: 12),
+      MoreSection(title: 'الدعم لاحقًا', children: [
+        MoreTile(icon: Icons.help_outline_rounded, label: 'مركز المساعدة', onTap: () {}),
+        MoreTile(icon: Icons.info_outline_rounded, label: 'عن Nodrix - $currentAppVersion', onTap: () {}),
+      ]),
     ]);
   }
+}
+
+class MoreSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const MoreSection({super.key, required this.title, required this.children});
+  @override
+  Widget build(BuildContext context) => AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 8),
+    ...children,
+  ]));
 }
 
 class MoreTile extends StatelessWidget {
   final IconData icon;
   final String label;
-  final Color color;
   final VoidCallback onTap;
-  const MoreTile({super.key, required this.icon, required this.label, required this.color, required this.onTap});
+  const MoreTile({super.key, required this.icon, required this.label, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return ListTile(
+    return InkWell(
       onTap: onTap,
-      contentPadding: EdgeInsets.zero,
-      leading: RoundIcon(icon, color: color),
-      title: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-      trailing: const Icon(Icons.chevron_left_rounded, color: AppColors.muted),
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        child: Row(children: [
+          MiniIcon(icon, box: 30),
+          const SizedBox(width: 10),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800))),
+          const Icon(Icons.chevron_left_rounded, size: 20, color: AppColors.muted),
+        ]),
+      ),
     );
   }
 }
@@ -1065,13 +984,16 @@ class RemindersPage extends StatelessWidget {
       future: api.getReminderPreview(),
       builder: (context, snapshot) {
         final data = snapshot.data ?? {};
-        return ListView(padding: const EdgeInsets.all(20), children: [
-          GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('معاينة التنبيهات', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 10),
-            Text('المستحقون للتنبيه: ${asText(data['count'], '0')}', style: const TextStyle(color: AppColors.muted)),
-            const SizedBox(height: 14),
-            FilledButton.icon(onPressed: () async { final r = await api.sendDemoReminders(); if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(asText(r['message'], 'تم الإرسال التجريبي')))); }, icon: const Icon(Icons.send_rounded), label: const Text('إرسال تجريبي')),
+        return ListView(padding: const EdgeInsets.all(18), children: [
+          AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('معاينة التنبيهات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            Text('عدد الرسائل المقترحة: ${data['count'] ?? 0}', style: const TextStyle(color: AppColors.muted)),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: () async {
+              final result = await api.sendDemoReminders();
+              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تمت المحاكاة: ${result['sentCount'] ?? 0}')));
+            }, child: const Text('إرسال تجريبي')),
           ])),
         ]);
       },
@@ -1087,27 +1009,28 @@ class UpdatesPage extends StatefulWidget {
 }
 
 class _UpdatesPageState extends State<UpdatesPage> {
-  Map<String, dynamic>? data;
   bool loading = false;
+  Map<String, dynamic>? data;
   String message = '';
 
   Future<void> check() async {
     setState(() { loading = true; message = ''; });
     try {
-      final r = await widget.api.getAppVersion();
-      setState(() => data = r);
+      final result = await widget.api.getAppVersion();
+      setState(() { data = result; message = result['ok'] == true ? 'تم فحص التحديثات' : asText(result['message'], 'تعذر الفحص'); });
     } catch (e) {
-      setState(() => message = 'تعذر جلب التحديث: $e');
+      setState(() => message = 'خطأ: $e');
     } finally {
       if (mounted) setState(() => loading = false);
     }
   }
 
-  Future<void> openDownload() async {
+  Future<void> download() async {
     final url = asText(data?['apkUrl'], '');
     if (url.isEmpty) return;
     final uri = Uri.parse(url);
-    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok) {
       await Clipboard.setData(ClipboardData(text: url));
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر فتح الرابط، تم نسخه للحافظة')));
     }
@@ -1116,21 +1039,22 @@ class _UpdatesPageState extends State<UpdatesPage> {
   @override
   Widget build(BuildContext context) {
     final latest = asText(data?['latestVersion'], currentAppVersion);
-    final hasUpdate = data != null && compareVersions(latest, currentAppVersion) > 0;
-    return Scaffold(appBar: AppBar(title: const Text('التحديثات')), body: ListView(padding: const EdgeInsets.all(20), children: [
-      GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const RoundIcon(Icons.system_update_rounded, color: AppColors.accent, size: 58),
-        const SizedBox(height: 18),
-        Text('النسخة الحالية: $currentAppVersion', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-        const SizedBox(height: 8),
-        Text(data == null ? 'اضغط فحص التحديثات لمعرفة آخر نسخة.' : 'آخر نسخة: $latest', style: const TextStyle(color: AppColors.muted)),
-        if (asText(data?['notes'], '').isNotEmpty) ...[const SizedBox(height: 8), Text(asText(data?['notes']), style: const TextStyle(color: AppColors.muted))],
-        if (message.isNotEmpty) ...[const SizedBox(height: 12), Text(message, style: const TextStyle(color: AppColors.red))],
-        const SizedBox(height: 18),
-        FilledButton.icon(onPressed: loading ? null : check, icon: const Icon(Icons.refresh_rounded), label: Text(loading ? 'جاري الفحص...' : 'فحص التحديثات')),
-        const SizedBox(height: 10),
-        if (hasUpdate) FilledButton.icon(onPressed: openDownload, icon: const Icon(Icons.download_rounded), label: const Text('تحميل التحديث'))
-        else if (data != null) const Text('أنت على آخر نسخة', textAlign: TextAlign.center, style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w900)),
+    final hasUpdate = compareVersions(latest, currentAppVersion) > 0;
+    return Scaffold(appBar: AppBar(title: const Text('التحديثات')), body: ListView(padding: const EdgeInsets.all(18), children: [
+      AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('حالة التطبيق', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 12),
+        MetricLine('النسخة الحالية', currentAppVersion),
+        MetricLine('آخر نسخة', latest),
+        if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(message, style: const TextStyle(color: AppColors.muted))),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(child: OutlinedButton(onPressed: loading ? null : check, child: Text(loading ? 'جاري الفحص...' : 'فحص التحديثات'))),
+          if (data != null) ...[
+            const SizedBox(width: 10),
+            Expanded(child: FilledButton(onPressed: hasUpdate ? download : null, child: const Text('تحميل'))),
+          ],
+        ]),
       ])),
     ]));
   }

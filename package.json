@@ -1,6 +1,6 @@
 {
   "name": "nodrix-app",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "description": "Nodrix monorepo. Root package is provided so Railway can deploy from the repository root.",
@@ -15,6 +15,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
   }
 }
