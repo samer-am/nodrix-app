@@ -460,36 +460,83 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
   }
 
   Future<Map<String, dynamic>> syncUsersInsideWebView(String token) async {
-    Future<Map<String, dynamic>> fetchPage(int page, int count) async {
-      final encrypted = await widget.api.encryptSasUserIndexPayload(page: page, count: count);
-      if (encrypted['ok'] != true || asText(encrypted['payload']).isEmpty) {
-        return {'ok': false, 'message': asText(encrypted['message'], 'فشل تجهيز طلب SAS المشفر من السيرفر')};
-      }
-      final payloadText = jsonEncode(encrypted['payload']);
+    Future<Map<String, dynamic>> fetchPage(int page) async {
       final js = '''
-(async function(){
-  const token = localStorage.getItem('sas4_jwt') || sessionStorage.getItem('sas4_jwt') || ${jsonEncode(token)};
-  const encryptedPayload = $payloadText;
-  if (!token || token.length < 20) return JSON.stringify({ok:false,message:'لم يتم العثور على جلسة SAS داخل المتصفح'});
-  try {
-    const res = await fetch('/admin/api/index.php/api/index/user', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, text/plain, */*',
-        'authorization': 'Bearer ' + token
-      },
-      body: JSON.stringify({ payload: encryptedPayload })
-    });
-    const text = await res.text();
-    if (!res.ok) return JSON.stringify({ok:false,status:res.status,message:'SAS رفض طلب المستخدمين HTTP ' + res.status,body:text.slice(0,900)});
-    try { return JSON.stringify({ok:true,data: JSON.parse(text)}); }
-    catch(e) { return JSON.stringify({ok:false,status:res.status,message:'استجابة SAS ليست JSON',body:text.slice(0,900)}); }
-  } catch(e) {
-    return JSON.stringify({ok:false,message:String(e && e.message ? e.message : e)});
+(async () => {
+  const token = localStorage.getItem("sas4_jwt") || sessionStorage.getItem("sas4_jwt") || ${jsonEncode(token)};
+  const hasCrypto = !!window.CryptoJS;
+  if (!token) {
+    return JSON.stringify({ok:false,phase:'token',message:'NO_TOKEN: لم أجد جلسة sas4_jwt داخل المتصفح'});
   }
-})()
+  if (!hasCrypto) {
+    return JSON.stringify({ok:false,phase:'crypto',message:'NO_CRYPTOJS: مكتبة التشفير غير متاحة داخل WebView'});
+  }
+
+  const key = "abcdefghijuklmno0123456789012345";
+  const payloadData = {
+    page: $page,
+    count: 10,
+    direction: "asc",
+    sortBy: "username",
+    search: "",
+    columns: [
+      "id",
+      "username",
+      "firstname",
+      "lastname",
+      "expiration",
+      "parent_username",
+      "name",
+      "loan_balance",
+      "traffic",
+      "remaining_days"
+    ]
+  };
+
+  try {
+    const encrypted = window.CryptoJS.AES.encrypt(JSON.stringify(payloadData), key).toString();
+    const res = await fetch("/admin/api/index.php/api/index/user", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "authorization": "Bearer " + token,
+        "content-type": "application/json",
+        "accept": "application/json, text/plain, */*"
+      },
+      body: JSON.stringify({ payload: encrypted })
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      return JSON.stringify({
+        ok:false,
+        phase:'users',
+        status:res.status,
+        page:$page,
+        message:'SAS رفض طلب المستخدمين HTTP ' + res.status,
+        body:text.slice(0,1000)
+      });
+    }
+
+    try {
+      const json = JSON.parse(text);
+      return JSON.stringify({
+        ok:true,
+        phase:'users',
+        page:$page,
+        current_page: json.current_page,
+        last_page: json.last_page,
+        total: json.total,
+        dataLength: Array.isArray(json.data) ? json.data.length : -1,
+        data: json
+      });
+    } catch(e) {
+      return JSON.stringify({ok:false,phase:'parse',status:res.status,page:$page,message:'استجابة SAS ليست JSON: '+e.message,body:text.slice(0,1000)});
+    }
+  } catch(e) {
+    return JSON.stringify({ok:false,phase:'exception',page:$page,message:String(e && e.message ? e.message : e)});
+  }
+})();
 ''';
       final result = await controller.runJavaScriptReturningResult(js);
       final text = _cleanJsResult(result);
@@ -501,31 +548,40 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
           if (decoded2 is Map<String, dynamic>) return decoded2;
         }
       } catch (_) {
-        return {'ok': false, 'message': 'تعذر قراءة نتيجة WebView', 'body': text.length > 900 ? text.substring(0, 900) : text};
+        return {'ok': false, 'phase': 'decode', 'message': 'تعذر قراءة نتيجة WebView', 'body': text.length > 1000 ? text.substring(0, 1000) : text};
       }
-      return {'ok': false, 'message': 'استجابة WebView غير صحيحة'};
+      return {'ok': false, 'phase': 'decode', 'message': 'استجابة WebView غير صحيحة'};
     }
 
     try {
-      const count = 10;
-      final first = await fetchPage(1, count);
+      await Future.delayed(const Duration(milliseconds: 1200));
+
+      final first = await fetchPage(1);
       if (first['ok'] != true) {
-        first['message'] = '${asText(first['message'], 'فشل جلب الصفحة الأولى من SAS')} | status=${asText(first['status'], 'غير معروف')} | body=${asText(first['body'], '').substring(0, asText(first['body'], '').length > 180 ? 180 : asText(first['body'], '').length)}';
-        return first;
+        final body = asText(first['body'], '');
+        return {
+          ...first,
+          'message': '${asText(first['message'], 'فشل جلب الصفحة الأولى من SAS')} | phase=${asText(first['phase'], '-')} | status=${asText(first['status'], '-')} | body=${body.substring(0, body.length > 220 ? 220 : body.length)}'
+        };
       }
+
       final data = first['data'];
-      if (data is! Map) return {'ok': false, 'message': 'بنية بيانات SAS غير صحيحة في الصفحة الأولى'};
+      if (data is! Map) return {'ok': false, 'phase': 'shape', 'message': 'بنية بيانات SAS غير صحيحة في الصفحة الأولى'};
       List<dynamic> users = (data['data'] is List) ? List<dynamic>.from(data['data'] as List) : <dynamic>[];
       final lastPageRaw = data['last_page'];
       final totalRaw = data['total'];
       final lastPage = (lastPageRaw is num ? lastPageRaw.toInt() : int.tryParse('$lastPageRaw') ?? 1).clamp(1, 200);
       final total = totalRaw is num ? totalRaw.toInt() : int.tryParse('$totalRaw') ?? users.length;
+
       for (int page = 2; page <= lastPage; page++) {
-        final next = await fetchPage(page, count);
+        final next = await fetchPage(page);
         if (next['ok'] != true) {
-          next['users'] = users;
-          next['message'] = '${asText(next['message'], 'فشل جلب صفحة من SAS')} - الصفحة $page';
-          return next;
+          final body = asText(next['body'], '');
+          return {
+            ...next,
+            'users': users,
+            'message': '${asText(next['message'], 'فشل جلب صفحة من SAS')} - الصفحة $page | phase=${asText(next['phase'], '-')} | status=${asText(next['status'], '-')} | body=${body.substring(0, body.length > 220 ? 220 : body.length)}'
+          };
         }
         final nextData = next['data'];
         if (nextData is Map && nextData['data'] is List) {
@@ -534,7 +590,7 @@ class _SasWebLoginPageState extends State<SasWebLoginPage> {
       }
       return {'ok': true, 'total': total, 'pages': lastPage, 'users': users};
     } catch (e) {
-      return {'ok': false, 'message': 'فشل جلب المشتركين من WebView: $e'};
+      return {'ok': false, 'phase': 'flutter', 'message': 'فشل جلب المشتركين من WebView: $e'};
     }
   }
 
