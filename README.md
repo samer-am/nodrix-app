@@ -1,45 +1,59 @@
 # Nodrix
 
-Nodrix is a starter network/SAS management app.
+تطبيق إدارة شبكة وساس تجريبي.
 
-## Structure
+## آخر تحديث
 
-- `backend/` Node.js Express API
-- `mobile_flutter/` Flutter mobile app
+- تعريب كامل للواجهة.
+- إضافة صفحة **التحديثات** داخل التطبيق.
+- إضافة Endpoint في الـ Backend:
 
-## Railway deployment
-
-Railway should deploy from the repository root. The root `package.json` starts the backend with:
-
-```bash
-npm start
+```txt
+GET /api/app-version
 ```
 
-Health endpoint:
+## تشغيل Backend محليًا
 
-```text
-/health
-```
-
-Expected response:
-
-```json
-{"ok":true,"service":"Nodrix Backend"}
-```
-
-Important: this package intentionally does **not** include a `railway.json` region or multi-region configuration. If Railway shows an error about `CONFIGURE_NETWORK` and invalid region `ams`, remove the multi-region/network region setting from the Railway service dashboard, then redeploy.
-
-## Local backend
-
-```bash
-npm install
-npm start
-```
-
-or:
-
-```bash
+```cmd
 cd backend
 npm install
 npm start
+```
+
+## فحص Railway
+
+```txt
+https://nodrix-app-production.up.railway.app/health
+```
+
+## متغيرات التحديثات في Railway
+
+يمكنك تغيير معلومات آخر إصدار من Railway بدون تعديل التطبيق:
+
+```txt
+APP_LATEST_VERSION=0.2.1
+APP_APK_URL=https://your-download-link/app-debug.apk
+APP_UPDATE_NOTES=نص ملاحظات التحديث
+PUBLIC_BASE_URL=https://nodrix-app-production.up.railway.app
+```
+
+إذا لم تضع `APP_APK_URL`، سيحاول التطبيق استخدام:
+
+```txt
+/downloads/nodrix-latest.apk
+```
+
+## بناء APK
+
+```cmd
+cd mobile_flutter
+flutter create .
+flutter pub get
+flutter build apk --debug
+```
+
+المسار:
+
+```txt
+mobile_flutter\build\app\outputs\flutter-apk\app-debug.apk
 ```

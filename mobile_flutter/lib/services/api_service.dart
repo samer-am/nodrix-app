@@ -8,6 +8,21 @@ class ApiService {
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
+  Future<Map<String, dynamic>> _readMap(http.Response response) async {
+    try {
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic>) return body;
+      return {'ok': false, 'message': 'استجابة غير متوقعة من السيرفر'};
+    } catch (_) {
+      return {
+        'ok': false,
+        'message': 'تعذر قراءة استجابة السيرفر',
+        'statusCode': response.statusCode,
+        'body': response.body,
+      };
+    }
+  }
+
   Future<Map<String, dynamic>> testConnection({
     required String type,
     required String sasUrl,
@@ -24,7 +39,7 @@ class ApiService {
         'password': password,
       }),
     );
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _readMap(response);
   }
 
   Future<void> saveConfig({
@@ -33,7 +48,7 @@ class ApiService {
     required String username,
     required String password,
   }) async {
-    await http.post(
+    final response = await http.post(
       _uri('/api/sas/save'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -43,11 +58,15 @@ class ApiService {
         'password': password,
       }),
     );
+    if (response.statusCode >= 400) {
+      final data = await _readMap(response);
+      throw Exception(data['message'] ?? 'فشل حفظ الإعدادات');
+    }
   }
 
   Future<Map<String, dynamic>> getDashboard() async {
     final response = await http.get(_uri('/api/dashboard'));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _readMap(response);
   }
 
   Future<List<dynamic>> getCustomers() async {
@@ -67,11 +86,16 @@ class ApiService {
 
   Future<Map<String, dynamic>> getReminderPreview() async {
     final response = await http.get(_uri('/api/reminders/preview'));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _readMap(response);
   }
 
   Future<Map<String, dynamic>> sendDemoReminders() async {
     final response = await http.post(_uri('/api/reminders/send-demo'));
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _readMap(response);
+  }
+
+  Future<Map<String, dynamic>> getAppVersion() async {
+    final response = await http.get(_uri('/api/app-version'));
+    return _readMap(response);
   }
 }

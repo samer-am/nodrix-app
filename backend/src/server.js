@@ -6,7 +6,8 @@ import { createAdapter } from './adapters/index.js';
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 8080;
+const port = process.env.PORT || 3000;
+const publicBaseUrl = process.env.PUBLIC_BASE_URL || 'https://nodrix-app-production.up.railway.app';
 
 let savedConfig = null;
 let reminderSettings = {
@@ -21,6 +22,26 @@ app.use(express.json());
 
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'Nodrix Backend' });
+});
+
+app.use('/downloads', express.static('public/downloads'));
+
+app.get('/api/app-version', (req, res) => {
+  const latestVersion = process.env.APP_LATEST_VERSION || '0.2.0';
+  const apkUrl = process.env.APP_APK_URL || `${publicBaseUrl}/downloads/nodrix-latest.apk`;
+  const notes =
+    process.env.APP_UPDATE_NOTES ||
+    'تعريب كامل للواجهة، إضافة صفحة التحديثات، وتحسين رسائل الحالة داخل التطبيق.';
+
+  res.json({
+    ok: true,
+    app: 'Nodrix',
+    latestVersion,
+    minSupportedVersion: process.env.APP_MIN_SUPPORTED_VERSION || '0.1.0',
+    apkUrl,
+    notes,
+    updatedAt: new Date().toISOString(),
+  });
 });
 
 app.post('/api/sas/test-connection', async (req, res) => {

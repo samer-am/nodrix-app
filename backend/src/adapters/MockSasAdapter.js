@@ -1,9 +1,9 @@
 export class MockSasAdapter {
   async login({ sasUrl, username, password }) {
     if (!sasUrl || username !== 'admin' || password !== 'admin123') {
-      return { ok: false, message: 'Invalid demo credentials. Use admin / admin123' };
+      return { ok: false, message: 'بيانات التجربة غير صحيحة. استخدم admin / admin123' };
     }
-    return { ok: true, message: 'Connected to mock SAS successfully' };
+    return { ok: true, message: 'تم الاتصال بمحول الساس التجريبي بنجاح' };
   }
 
   async getDashboard() {
@@ -27,75 +27,75 @@ export class MockSasAdapter {
     return [
       {
         id: 1,
-        name: 'Ahmed Ali',
+        name: 'أحمد علي',
         phone: '07700000001',
-        package: '25 Mbps',
+        package: '25 ميغابت',
         price: 35000,
         status: 'active',
-        tower: 'Al-Nasr Tower',
-        sector: 'Sector A',
+        tower: 'برج النصر',
+        sector: 'سكتر A',
         username: 'ahmed.ali',
-        address: 'Street 12 - near pharmacy',
+        address: 'شارع 12 - قرب الصيدلية',
         startedAt: '2026-04-20',
         expiresAt: '2026-05-20',
         lastPaymentAt: '2026-04-20',
       },
       {
         id: 2,
-        name: 'Hussein Kareem',
+        name: 'حسين كريم',
         phone: '07700000002',
-        package: '15 Mbps',
+        package: '15 ميغابت',
         price: 25000,
         status: 'expires_soon',
-        tower: 'Al-Nasr Tower',
-        sector: 'Sector B',
+        tower: 'برج النصر',
+        sector: 'سكتر B',
         username: 'hussein.k',
-        address: 'Market area',
+        address: 'منطقة السوق',
         startedAt: '2026-04-08',
         expiresAt: '2026-05-08',
         lastPaymentAt: '2026-04-08',
       },
       {
         id: 3,
-        name: 'Sara Mohammed',
+        name: 'سارة محمد',
         phone: '07700000003',
-        package: '10 Mbps',
+        package: '10 ميغابت',
         price: 20000,
         status: 'expired',
-        tower: 'East Tower',
-        sector: 'Sector C',
+        tower: 'البرج الشرقي',
+        sector: 'سكتر C',
         username: 'sara.m',
-        address: 'School street',
+        address: 'شارع المدرسة',
         startedAt: '2026-04-01',
         expiresAt: '2026-05-01',
         lastPaymentAt: '2026-04-01',
       },
       {
         id: 4,
-        name: 'Mustafa Raad',
+        name: 'مصطفى رعد',
         phone: '07700000004',
-        package: '50 Mbps',
+        package: '50 ميغابت',
         price: 55000,
         status: 'active',
-        tower: 'West Tower',
-        sector: 'Sector D',
+        tower: 'البرج الغربي',
+        sector: 'سكتر D',
         username: 'mustafa.r',
-        address: 'Bridge road',
+        address: 'طريق الجسر',
         startedAt: '2026-04-18',
         expiresAt: '2026-05-18',
         lastPaymentAt: '2026-04-18',
       },
       {
         id: 5,
-        name: 'Zainab Hassan',
+        name: 'زينب حسن',
         phone: '07700000005',
-        package: '20 Mbps',
+        package: '20 ميغابت',
         price: 30000,
         status: 'expires_soon',
-        tower: 'East Tower',
-        sector: 'Sector C',
+        tower: 'البرج الشرقي',
+        sector: 'سكتر C',
         username: 'zainab.h',
-        address: 'Block 4',
+        address: 'بلوك 4',
         startedAt: '2026-04-07',
         expiresAt: '2026-05-07',
         lastPaymentAt: '2026-04-07',
@@ -105,18 +105,18 @@ export class MockSasAdapter {
 
   async getSectors() {
     return [
-      { id: 1, name: 'Sector A', tower: 'Al-Nasr Tower', ip: '192.168.10.2', type: 'Ubiquiti', status: 'online', clients: 44, signal: '-61 dBm', uptime: '18d 4h' },
-      { id: 2, name: 'Sector B', tower: 'Al-Nasr Tower', ip: '192.168.10.3', type: 'MikroTik', status: 'online', clients: 38, signal: '-64 dBm', uptime: '9d 2h' },
-      { id: 3, name: 'Sector C', tower: 'East Tower', ip: '192.168.10.4', type: 'Mimosa', status: 'offline', clients: 0, signal: 'N/A', uptime: 'offline' },
-      { id: 4, name: 'Sector D', tower: 'West Tower', ip: '192.168.10.5', type: 'Cambium', status: 'online', clients: 21, signal: '-58 dBm', uptime: '31d 7h' }
+      { id: 1, name: 'سكتر A', tower: 'برج النصر', ip: '192.168.10.2', type: 'Ubiquiti', status: 'online', clients: 44, signal: '-61 dBm', uptime: '18 يوم 4 ساعة' },
+      { id: 2, name: 'سكتر B', tower: 'برج النصر', ip: '192.168.10.3', type: 'MikroTik', status: 'online', clients: 38, signal: '-64 dBm', uptime: '9 أيام 2 ساعة' },
+      { id: 3, name: 'سكتر C', tower: 'البرج الشرقي', ip: '192.168.10.4', type: 'Mimosa', status: 'offline', clients: 0, signal: 'N/A', uptime: 'متوقف' },
+      { id: 4, name: 'سكتر D', tower: 'البرج الغربي', ip: '192.168.10.5', type: 'Cambium', status: 'online', clients: 21, signal: '-58 dBm', uptime: '31 يوم 7 ساعة' }
     ];
   }
 
   async getLinks() {
     return [
-      { id: 1, name: 'Main Link', from: 'Core', to: 'Al-Nasr Tower', ip: '192.168.20.2', type: 'Ubiquiti', status: 'online', capacity: '450 Mbps', traffic: '128 Mbps', uptime: '45d 1h' },
-      { id: 2, name: 'Backup Link', from: 'Core', to: 'East Tower', ip: '192.168.20.3', type: 'MikroTik', status: 'online', capacity: '250 Mbps', traffic: '72 Mbps', uptime: '12d 9h' },
-      { id: 3, name: 'West Link', from: 'Core', to: 'West Tower', ip: '192.168.20.4', type: 'Mimosa', status: 'offline', capacity: '300 Mbps', traffic: '0 Mbps', uptime: 'offline' }
+      { id: 1, name: 'النك الرئيسي', from: 'الكور', to: 'برج النصر', ip: '192.168.20.2', type: 'Ubiquiti', status: 'online', capacity: '450 Mbps', traffic: '128 Mbps', uptime: '45 يوم 1 ساعة' },
+      { id: 2, name: 'النك الاحتياطي', from: 'الكور', to: 'البرج الشرقي', ip: '192.168.20.3', type: 'MikroTik', status: 'online', capacity: '250 Mbps', traffic: '72 Mbps', uptime: '12 يوم 9 ساعة' },
+      { id: 3, name: 'النك الغربي', from: 'الكور', to: 'البرج الغربي', ip: '192.168.20.4', type: 'Mimosa', status: 'offline', capacity: '300 Mbps', traffic: '0 Mbps', uptime: 'متوقف' }
     ];
   }
 }
