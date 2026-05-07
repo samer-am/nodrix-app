@@ -94,6 +94,20 @@ function decryptSecret(value) {
   }
 }
 
+function uniqueFiBrowserHeaders(baseUrl, token = '') {
+  const normalized = normalizeBaseUrl(baseUrl);
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/plain, */*',
+    Origin: normalized,
+    Referer: `${normalized}/`,
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+  };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
+}
+
 async function postJson(url, body, headers = {}) {
   const response = await fetch(url, {
     method: 'POST',
@@ -104,26 +118,46 @@ async function postJson(url, body, headers = {}) {
   let data = null;
   try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
   if (!response.ok) {
-    const msg = data?.message || data?.error || `HTTP ${response.status}`;
-    throw new Error(msg);
+    const msg = data?.message || data?.error || data?.raw || `HTTP ${response.status}`;
+    const err = new Error(String(msg).slice(0, 500));
+    err.status = response.status;
+    err.url = url;
+    err.data = data;
+    err.bodyPreview = String(text || '').slice(0, 800);
+    throw err;
   }
   return data;
 }
 
 async function uniqueFiEncryptedPost(baseUrl, endpoint, payload, token = '') {
   const url = `${uniqueFiApiBase(baseUrl)}${endpoint}`;
-  const headers = token ? { authorization: `Bearer ${token}` } : {};
-  return postJson(url, { payload: cryptoJsAesEncrypt(payload) }, headers);
+  return postJson(url, { payload: cryptoJsAesEncrypt(payload) }, uniqueFiBrowserHeaders(baseUrl, token));
 }
 
 function extractSasToken(data) {
   return data?.token || data?.access_token || data?.data?.token || data?.data?.access_token || '';
 }
 
+function safeSasError(prefix, error) {
+  const status = error?.status ? `HTTP ${error.status}` : '';
+  const body = error?.data?.message || error?.data?.error || error?.bodyPreview || error?.message || '';
+  const isCloudflare = /cloudflare|cf-|attention required|just a moment|forbidden/i.test(String(body));
+  if (isCloudflare) return `${prefix}: Cloudflare/Firewall ${status}`.trim();
+  return `${prefix}: ${status || ''} ${String(body).slice(0, 220)}`.trim();
+}
+
 async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
   const baseUrl = normalizeBaseUrl(sasUrl);
   if (!baseUrl || !username || !password) return { ok: false, message: 'الرابط واليوزر والباسورد مطلوبة' };
-  const resources = await fetch(`${uniqueFiApiBase(baseUrl)}resources/login`).then(r => r.json()).catch(() => null);
+  let resources = null;
+  try {
+    const r = await fetch(`${uniqueFiApiBase(baseUrl)}resources/login`, { headers: uniqueFiBrowserHeaders(baseUrl) });
+    const text = await r.text();
+    try { resources = text ? JSON.parse(text) : null; } catch (_) { resources = { raw: text }; }
+    if (!r.ok) return { ok: false, message: `فشل تحميل إعدادات SAS: HTTP ${r.status}` };
+  } catch (error) {
+    return { ok: false, message: `فشل الوصول إلى رابط SAS: ${error.message}` };
+  }
   const loginPayload = {
     username,
     password,
@@ -132,12 +166,16 @@ async function uniqueFiLogin({ sasUrl, username, password, language = 'en' }) {
     captcha_text: null,
     session_id: randomUUID(),
   };
-  const login = await uniqueFiEncryptedPost(baseUrl, 'login', loginPayload);
-  const token = extractSasToken(login);
-  if (!token || login.status !== 200) {
-    return { ok: false, message: login?.message || 'فشل تسجيل الدخول إلى SAS', responseStatus: login?.status };
+  try {
+    const login = await uniqueFiEncryptedPost(baseUrl, 'login', loginPayload);
+    const token = extractSasToken(login);
+    if (!token || login.status !== 200) {
+      return { ok: false, message: login?.message || 'فشل تسجيل الدخول إلى SAS', responseStatus: login?.status, phase: 'login' };
+    }
+    return { ok: true, token, site: resources?.data?.site?.title || 'SAS Radius', language: loginPayload.language };
+  } catch (error) {
+    return { ok: false, message: safeSasError('فشل تسجيل الدخول إلى SAS', error), responseStatus: error.status, phase: 'login' };
   }
-  return { ok: true, token, site: resources?.data?.site?.title || 'SAS Radius', language: loginPayload.language };
 }
 
 function userIndexPayload(page = 1, rowsPerPage = 100) {
@@ -154,18 +192,22 @@ function userIndexPayload(page = 1, rowsPerPage = 100) {
 
 async function uniqueFiFetchUsers(config) {
   const login = await uniqueFiLogin(config);
-  if (!login.ok) return { ok: false, message: login.message };
+  if (!login.ok) return { ok: false, message: login.message, phase: login.phase || 'login' };
   const token = login.token;
   const all = [];
   let lastPage = 1;
   let total = 0;
-  for (let page = 1; page <= lastPage && page <= 200; page++) {
-    const response = await uniqueFiEncryptedPost(config.sasUrl, `index/user?page=${page}`, userIndexPayload(page), token);
-    const rows = Array.isArray(response?.data) ? response.data : [];
-    all.push(...rows);
-    lastPage = Number(response?.last_page || lastPage || 1);
-    total = Number(response?.total || total || all.length);
-    if (!response?.next_page_url && page >= lastPage) break;
+  try {
+    for (let page = 1; page <= lastPage && page <= 200; page++) {
+      const response = await uniqueFiEncryptedPost(config.sasUrl, `index/user?page=${page}`, userIndexPayload(page), token);
+      const rows = Array.isArray(response?.data) ? response.data : [];
+      all.push(...rows);
+      lastPage = Number(response?.last_page || lastPage || 1);
+      total = Number(response?.total || total || all.length);
+      if (!response?.next_page_url && page >= lastPage) break;
+    }
+  } catch (error) {
+    return { ok: false, message: safeSasError('فشل جلب المستخدمين من SAS', error), phase: 'users', status: error.status };
   }
   return { ok: true, users: all, total, pages: lastPage, syncedAt: new Date().toISOString() };
 }
@@ -786,6 +828,36 @@ app.get('/api/sas/status', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+
+
+app.get('/api/sas/diagnose', async (req, res) => {
+  try {
+    const config = await getSavedSasConfig();
+    if (!config || !config.sasUrl || !config.username || !config.password) {
+      return res.status(400).json({ ok: false, phase: 'config', message: 'لا توجد لوحة SAS محفوظة' });
+    }
+    const login = await uniqueFiLogin(config);
+    if (!login.ok) {
+      return res.status(200).json({ ok: false, phase: login.phase || 'login', message: login.message, status: login.responseStatus || null });
+    }
+    try {
+      const firstPage = await uniqueFiEncryptedPost(config.sasUrl, 'index/user?page=1', userIndexPayload(1), login.token);
+      return res.json({
+        ok: true,
+        phase: 'users',
+        message: 'الاتصال والمزامنة التجريبية نجحا',
+        total: firstPage?.total || 0,
+        pageRows: Array.isArray(firstPage?.data) ? firstPage.data.length : 0,
+        lastPage: firstPage?.last_page || 1,
+      });
+    } catch (error) {
+      return res.status(200).json({ ok: false, phase: 'users', message: safeSasError('فشل جلب المستخدمين من SAS', error), status: error.status || null });
+    }
+  } catch (error) {
+    res.status(500).json({ ok: false, phase: 'server', message: error.message });
   }
 });
 
