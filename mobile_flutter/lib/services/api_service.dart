@@ -90,6 +90,12 @@ class ApiService {
     throw Exception('استجابة المشتركين غير صحيحة');
   }
 
+
+  Future<Map<String, dynamic>> getCustomer(dynamic id) async {
+    final response = await http.get(_uri('/api/customers/$id'));
+    return _readMap(response);
+  }
+
   Future<Map<String, dynamic>> addCustomer(Map<String, dynamic> customer) {
     return _postMap('/api/customers', customer);
   }

@@ -234,8 +234,8 @@ String remainingDetailedText(Map<String, dynamic> c) {
   if (duration == null) {
     final days = customerRemainingDays(c);
     if (days == null) return 'غير متوفر';
-    if (days <= 0) return 'منتهي';
-    if (days == 1) return 'أقل من يوم';
+    if (days < 0) return 'منتهي';
+    if (days == 0 || days == 1) return 'أقل من 24 ساعة';
     return '$days يوم';
   }
   if (duration.isNegative) return 'منتهي';
@@ -244,7 +244,7 @@ String remainingDetailedText(Map<String, dynamic> c) {
     final minutes = duration.inMinutes.clamp(0, 59);
     return '$minutes دقيقة';
   }
-  if (hours < 24) return '$hours ساعة';
+  if (hours < 48) return '$hours ساعة';
   final days = (hours / 24).floor();
   final restHours = hours % 24;
   if (restHours == 0) return '$days يوم';
@@ -1098,6 +1098,133 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
+  String filterSheetLabel(String value) {
+    switch (value) {
+      case 'active': return 'فعال';
+      case 'online': return 'المتصلين الحاليين';
+      case 'offline': return 'غير المتصلين';
+      case 'expired': return 'المنتهين';
+      case 'soon': return 'قريب من الانتهاء';
+      case 'debt': return 'عليهم دين';
+      case 'all':
+      default: return 'الكل';
+    }
+  }
+
+  IconData filterSheetIcon(String value) {
+    switch (value) {
+      case 'active': return Icons.check_circle_outline_rounded;
+      case 'online': return Icons.wifi_rounded;
+      case 'offline': return Icons.wifi_off_rounded;
+      case 'expired': return Icons.cancel_outlined;
+      case 'soon': return Icons.warning_amber_rounded;
+      case 'debt': return Icons.account_balance_wallet_outlined;
+      case 'all':
+      default: return Icons.explore_outlined;
+    }
+  }
+
+  Color filterSheetColor(String value) {
+    switch (value) {
+      case 'active': return AppColors.green;
+      case 'online': return AppColors.primary;
+      case 'offline': return AppColors.red;
+      case 'expired': return AppColors.red;
+      case 'soon': return AppColors.warning;
+      case 'debt': return AppColors.purple;
+      case 'all':
+      default: return AppColors.muted;
+    }
+  }
+
+  Future<void> chooseFilter(List<Map<String, dynamic>> all) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('فلترة المشتركين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            const Text('اختر القائمة التي تريد عرضها الآن.', style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+            const SizedBox(height: 14),
+            filterSheetTile('all', all.length),
+            const SizedBox(height: 10),
+            filterSheetTile('active', filterCount(all, 'active')),
+            const SizedBox(height: 10),
+            filterSheetTile('online', filterCount(all, 'online')),
+            const SizedBox(height: 10),
+            filterSheetTile('offline', filterCount(all, 'offline')),
+            const SizedBox(height: 10),
+            filterSheetTile('soon', filterCount(all, 'soon')),
+            const SizedBox(height: 10),
+            filterSheetTile('expired', filterCount(all, 'expired')),
+            const SizedBox(height: 10),
+            filterSheetTile('debt', filterCount(all, 'debt')),
+          ]),
+        ),
+      ),
+    );
+    if (selected != null) setState(() => filter = selected);
+  }
+
+  Widget filterSheetTile(String value, int count) {
+    final selected = filter == value;
+    final color = filterSheetColor(value);
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => Navigator.pop(context, value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(.14) : AppColors.card,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: selected ? color.withOpacity(.55) : AppColors.border, width: selected ? 1.3 : 1),
+        ),
+        child: Row(children: [
+          Container(
+            width: 58,
+            height: 34,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: selected ? color.withOpacity(.28) : Colors.white.withOpacity(.08),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: selected ? color.withOpacity(.6) : Colors.white.withOpacity(.20)),
+            ),
+            alignment: selected ? Alignment.centerLeft : Alignment.centerRight,
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(color: selected ? color : Colors.white38, shape: BoxShape.circle),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Row(children: [
+              Text(filterSheetLabel(value), style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900, color: selected ? AppColors.text : AppColors.text)),
+              const Spacer(),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(color: color.withOpacity(.14), borderRadius: BorderRadius.circular(14)),
+                child: Icon(filterSheetIcon(value), size: 22, color: color),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(999), border: Border.all(color: AppColors.border)),
+            child: Text('$count', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: AppColors.text)),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Widget filterChipPro(String value, String label, int count, IconData icon) {
     final selected = filter == value;
     return Padding(
@@ -1149,25 +1276,64 @@ class _CustomersPageState extends State<CustomersPage> {
               decoration: const InputDecoration(hintText: 'ابحث بالاسم، اليوزر، الهاتف، أو الباقة', prefixIcon: Icon(Icons.search_rounded, size: 19)),
             ),
             const SizedBox(height: 12),
-            SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-              filterChipPro('all', 'الكل', all.length, Icons.people_alt_rounded),
-              filterChipPro('active', 'فعال', filterCount(all, 'active'), Icons.check_circle_rounded),
-              filterChipPro('online', 'المتصلين', filterCount(all, 'online'), Icons.wifi_rounded),
-              filterChipPro('offline', 'غير المتصلين', filterCount(all, 'offline'), Icons.wifi_off_rounded),
-              filterChipPro('expired', 'المنتهين', filterCount(all, 'expired'), Icons.event_busy_rounded),
-              filterChipPro('soon', 'قريب الانتهاء', filterCount(all, 'soon'), Icons.warning_rounded),
-              filterChipPro('debt', 'عليهم دين', filterCount(all, 'debt'), Icons.account_balance_wallet_rounded),
-            ])),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: OutlinedButton.icon(onPressed: chooseSort, icon: const Icon(Icons.tune_rounded, size: 18), label: Text('ترتيب: ${sortLabel()}'))),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.border)),
-                child: Text('${items.length} نتيجة', style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
-              ),
-            ]),
+            AppCard(
+              padding: const EdgeInsets.all(14),
+              color: AppColors.cardSoft,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () => chooseFilter(all),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.panel,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: filterSheetColor(filter).withOpacity(.16),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(filterSheetIcon(filter), size: 18, color: filterSheetColor(filter)),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Text('الفلترة الحالية', style: TextStyle(color: AppColors.faint, fontSize: 11.5, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 3),
+                            Text(filterSheetLabel(filter), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                          ])),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: AppColors.cardSoft, borderRadius: BorderRadius.circular(999), border: Border.all(color: AppColors.border)),
+                            child: Text('${items.length}', style: const TextStyle(color: AppColors.text, fontSize: 12, fontWeight: FontWeight.w900)),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: chooseSort,
+                    child: Container(
+                      width: 54,
+                      height: 60,
+                      decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+                      child: const Icon(Icons.swap_vert_rounded, size: 22, color: AppColors.text),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                Text('الترتيب الحالي: ${sortLabel()}', style: const TextStyle(color: AppColors.muted, fontSize: 12.2, fontWeight: FontWeight.w800)),
+              ]),
+            ),
             const SizedBox(height: 12),
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
             if (snapshot.hasError) AppCard(child: Text('تعذر جلب المشتركين: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
@@ -1187,6 +1353,7 @@ class _CustomersPageState extends State<CustomersPage> {
 }
 
 
+
 class CustomerCard extends StatelessWidget {
   final ApiService api;
   final Map<String, dynamic> customer;
@@ -1199,8 +1366,8 @@ class CustomerCard extends StatelessWidget {
   }
 
   Future<void> pay(BuildContext context) async {
-    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
-    if (ok == true) onChanged();
+    final result = await Navigator.push<dynamic>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
+    if (result != null) onChanged();
   }
 
   @override
@@ -1210,39 +1377,32 @@ class CustomerCard extends StatelessWidget {
     final badgeColor = remainingBadgeColor(days);
     final username = asText(customer['sasUsername'], asText(customer['phone']));
     final packageName = asText(customer['package']);
+    final ip = asText(customer['sasIp'], 'غير متوفر');
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       onTap: () => details(context),
       child: AppCard(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(15),
         color: AppColors.card,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            MiniIcon(Icons.person_rounded, color: online ? AppColors.green : AppColors.red, box: 34),
+            MiniIcon(Icons.person_rounded, color: online ? AppColors.green : AppColors.red, box: 36),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asText(customer['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, height: 1.2)),
+              Text(asText(customer['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16.2, fontWeight: FontWeight.w900, height: 1.2)),
               const SizedBox(height: 4),
-              Row(children: [
-                Flexible(child: Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
-                const SizedBox(width: 8),
-                Container(width: 4, height: 4, decoration: const BoxDecoration(color: AppColors.faint, shape: BoxShape.circle)),
-                const SizedBox(width: 8),
-                Flexible(child: Text(packageName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w900))),
-              ]),
+              Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 5),
+              Text(packageName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.primary, fontSize: 12.7, fontWeight: FontWeight.w900)),
             ])),
             const SizedBox(width: 10),
-            RemainingBadge(days: days, color: badgeColor, customText: remainingDetailedText(customer)),
+            RemainingBadge(days: days, color: badgeColor, customText: remainingDetailedText(customer), compact: true),
           ]),
           const SizedBox(height: 12),
-          Row(children: [
+          Wrap(spacing: 8, runSpacing: 8, children: [
             OnlinePill(online: online),
-            const SizedBox(width: 8),
             SmallTag(icon: Icons.data_usage_rounded, label: compactTrafficLabel(customer), color: AppColors.primary),
-            if (customerDebtValue(customer) > 0) ...[
-              const SizedBox(width: 8),
-              SmallTag(icon: Icons.account_balance_wallet_rounded, label: 'دين', color: AppColors.warning),
-            ],
+            if (customerDebtValue(customer) > 0) SmallTag(icon: Icons.account_balance_wallet_rounded, label: money(customerDebtValue(customer)), color: AppColors.warning),
           ]),
           const SizedBox(height: 12),
           Container(
@@ -1250,12 +1410,12 @@ class CustomerCard extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
             child: Column(children: [
               Row(children: [
-                Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
+                Expanded(child: _MiniInfo('انتهاء الاشتراك', dateLabel(customer['expiresAt']))),
                 Expanded(child: _MiniInfo('آخر اتصال', asText(customer['sasLastOnline'], 'غير متوفر'))),
               ]),
               const SizedBox(height: 12),
               Row(children: [
-                Expanded(child: _MiniInfo('IP', asText(customer['sasIp'], 'غير متوفر'))),
+                Expanded(child: _MiniInfo('IP', ip)),
                 Expanded(child: _MiniInfo('المدير', asText(customer['sasParentUsername'], 'غير متوفر'))),
               ]),
             ]),
@@ -1271,25 +1431,27 @@ class CustomerCard extends StatelessWidget {
   }
 }
 
+
 class RemainingBadge extends StatelessWidget {
   final int? days;
   final Color color;
   final String? customText;
-  const RemainingBadge({super.key, required this.days, required this.color, this.customText});
+  final bool compact;
+  const RemainingBadge({super.key, required this.days, required this.color, this.customText, this.compact = false});
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 72),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      constraints: BoxConstraints(minWidth: compact ? 84 : 92),
+      padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12, vertical: compact ? 8 : 10),
       decoration: BoxDecoration(
         color: color.withOpacity(.14),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(compact ? 16 : 18),
         border: Border.all(color: color.withOpacity(.55)),
       ),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(days == null ? Icons.help_outline_rounded : (days! <= 0 ? Icons.block_rounded : Icons.timelapse_rounded), size: 15, color: color),
-        const SizedBox(height: 3),
-        Text(customText ?? remainingBadgeText(days), textAlign: TextAlign.center, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900, height: 1.05)),
+        Icon(days == null ? Icons.help_outline_rounded : (days! <= 0 ? Icons.block_rounded : Icons.timelapse_rounded), size: compact ? 14 : 15, color: color),
+        SizedBox(height: compact ? 2 : 3),
+        Text(customText ?? remainingBadgeText(days), textAlign: TextAlign.center, style: TextStyle(color: color, fontSize: compact ? 10.8 : 11.5, fontWeight: FontWeight.w900, height: 1.05)),
       ]),
     );
   }
@@ -1342,22 +1504,137 @@ class _MiniInfo extends StatelessWidget {
 }
 
 
-class CustomerDetailsPage extends StatelessWidget {
+
+class CustomerDetailsPage extends StatefulWidget {
   final ApiService api;
   final Map<String, dynamic> customer;
   const CustomerDetailsPage({super.key, required this.api, required this.customer});
 
+  @override
+  State<CustomerDetailsPage> createState() => _CustomerDetailsPageState();
+}
+
+class _CustomerDetailsPageState extends State<CustomerDetailsPage> {
+  late Map<String, dynamic> customer;
+  bool dirty = false;
+
+  @override
+  void initState() {
+    super.initState();
+    customer = Map<String, dynamic>.from(widget.customer);
+  }
+
   Future<void> edit(BuildContext context) async {
-    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: api, customer: customer)));
-    if (ok == true && context.mounted) Navigator.pop(context, true);
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: widget.api, customer: customer)));
+    if (ok == true) {
+      await reloadCustomer();
+      markDirty();
+    }
   }
 
   Future<void> pay(BuildContext context) async {
-    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: api, customer: customer)));
-    if (ok == true && context.mounted) Navigator.pop(context, true);
+    final result = await Navigator.push<Map<String, dynamic>?>(context, MaterialPageRoute(builder: (_) => PaymentPage(api: widget.api, customer: customer)));
+    if (result != null) {
+      applyCustomerUpdate(result);
+      markDirty();
+    }
   }
 
-  void showActionMessage(BuildContext context, String title, String message) {
+  void markDirty() {
+    if (mounted) setState(() => dirty = true);
+  }
+
+  void applyCustomerUpdate(Map<String, dynamic> updated) {
+    if (!mounted) return;
+    setState(() {
+      customer = {...customer, ...updated};
+      dirty = true;
+    });
+  }
+
+  Future<void> reloadCustomer() async {
+    try {
+      final data = await widget.api.getCustomer(customer['id']);
+      final updated = data['customer'];
+      if (updated is Map<String, dynamic>) {
+        applyCustomerUpdate(updated);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> addDebt() async {
+    final amountController = TextEditingController();
+    final noteController = TextEditingController();
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 18),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('إضافة دين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          const Text('أدخل المبلغ وسيُضاف فورًا على دين المشترك.', style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
+          const SizedBox(height: 14),
+          TextField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ', prefixIcon: Icon(Icons.account_balance_wallet_outlined, size: 18))),
+          const SizedBox(height: 12),
+          TextField(controller: noteController, maxLines: 2, decoration: const InputDecoration(labelText: 'ملاحظة اختيارية', prefixIcon: Icon(Icons.notes_rounded, size: 18))),
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context, {'amount': asInt(amountController.text), 'note': noteController.text.trim()}), child: const Text('حفظ الدين'))),
+        ]),
+      ),
+    );
+    if (result == null) return;
+    final amount = asInt(result['amount']);
+    if (amount <= 0) return;
+    final mergedNotes = mergeNotes(asText(customer['notes'], ''), result['note']);
+    final response = await widget.api.updateCustomer(customer['id'], {
+      'debt': asInt(customer['debt']) + amount,
+      'notes': mergedNotes,
+    });
+    if (response['ok'] == true) {
+      final updated = response['customer'];
+      if (updated is Map<String, dynamic>) applyCustomerUpdate(updated);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت إضافة الدين مباشرة')));
+    }
+  }
+
+  Future<void> editNotes() async {
+    final controller = TextEditingController(text: asText(customer['notes'], ''));
+    final value = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(18, 18, 18, MediaQuery.of(context).viewInsets.bottom + 18),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('ملاحظات', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          TextField(controller: controller, maxLines: 5, decoration: const InputDecoration(labelText: 'اكتب الملاحظات', prefixIcon: Icon(Icons.notes_rounded, size: 18))),
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('حفظ الملاحظات'))),
+        ]),
+      ),
+    );
+    if (value == null) return;
+    final response = await widget.api.updateCustomer(customer['id'], {'notes': value});
+    if (response['ok'] == true) {
+      final updated = response['customer'];
+      if (updated is Map<String, dynamic>) applyCustomerUpdate(updated);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ الملاحظات')));
+    }
+  }
+
+  String mergeNotes(String current, dynamic extra) {
+    final next = asText(extra, '');
+    if (next == '—' || next.isEmpty) return current;
+    if (current.isEmpty || current == '—') return next;
+    return '$current\n• $next';
+  }
+
+  void showActionMessage(String title, String message) {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.panel,
@@ -1377,7 +1654,7 @@ class CustomerDetailsPage extends StatelessWidget {
     );
   }
 
-  Future<void> openMenu(BuildContext context) async {
+  Future<void> openMenu() async {
     final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: AppColors.panel,
@@ -1388,26 +1665,26 @@ class CustomerDetailsPage extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('إجراءات المشترك', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
-            actionTile(context, 'change_package', 'تغير نوع الاشتراك', Icons.speed_rounded),
-            actionTile(context, 'extend', 'تمديد', Icons.more_time_rounded),
-            actionTile(context, 'rename', 'تعديل الاسم', Icons.drive_file_rename_outline_rounded),
-            actionTile(context, 'restrict', 'تقييد المستخدم', Icons.lock_rounded),
+            actionTile('change_package', 'تغيير نوع الاشتراك', Icons.speed_rounded),
+            actionTile('extend', 'تمديد', Icons.more_time_rounded),
+            actionTile('rename', 'تعديل الاسم', Icons.drive_file_rename_outline_rounded),
+            actionTile('restrict', 'تقييد المستخدم', Icons.lock_rounded),
           ]),
         ),
       ),
     );
-    if (!context.mounted || selected == null) return;
+    if (!mounted || selected == null) return;
     if (selected == 'rename') return edit(context);
     if (selected == 'change_package') {
-      showActionMessage(context, 'تغير نوع الاشتراك', 'سيتم جلب أنواع الاشتراكات من SAS لاحقًا. لا يمكن تغيير نوع الاشتراك إلا بعد انتهاء الاشتراك الحالي، وبعدها يستطيع المستخدم التجديد على النوع الجديد.');
+      showActionMessage('تغيير نوع الاشتراك', 'سيتم جلب أنواع الاشتراكات من SAS لاحقًا. لا يمكن تغيير نوع الاشتراك إلا بعد انتهاء الاشتراك الحالي، وبعدها يستطيع المستخدم التجديد على النوع الجديد.');
     } else if (selected == 'extend') {
-      showActionMessage(context, 'تمديد الاشتراك', 'التمديد يحتاج ربطًا مباشرًا مع أوامر SAS حتى لا يحصل اختلاف بين Nodrix واللوحة. سنناقشه كمرحلة مستقلة.');
+      showActionMessage('تمديد الاشتراك', 'التمديد يحتاج ربطًا مباشرًا مع أوامر SAS حتى لا يحصل اختلاف بين Nodrix واللوحة. سنناقشه كمرحلة مستقلة.');
     } else if (selected == 'restrict') {
-      showActionMessage(context, 'تقييد المستخدم', 'التقييد يجب أن ينفذ داخل SAS فعليًا على اليوزر، لذلك سيُضاف بعد تثبيت أوامر التعديل على حسابات SAS.');
+      showActionMessage('تقييد المستخدم', 'التقييد يجب أن ينفذ داخل SAS فعليًا على اليوزر، لذلك سيُضاف بعد تثبيت أوامر التعديل على حسابات SAS.');
     }
   }
 
-  Widget actionTile(BuildContext context, String value, String label, IconData icon) => ListTile(
+  Widget actionTile(String value, String label, IconData icon) => ListTile(
     dense: true,
     contentPadding: EdgeInsets.zero,
     leading: Icon(icon, color: AppColors.primary, size: 21),
@@ -1415,59 +1692,114 @@ class CustomerDetailsPage extends StatelessWidget {
     onTap: () => Navigator.pop(context, value),
   );
 
+  Future<bool> onWillPop() async {
+    Navigator.pop(context, dirty);
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final online = customerIsOnline(customer);
     final stateColor = online ? AppColors.green : AppColors.red;
     final debt = customerDebtValue(customer);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('تفاصيل المشترك'),
-        leading: IconButton(onPressed: () => openMenu(context), icon: const Icon(Icons.menu_rounded), tooltip: 'إجراءات'),
-        actions: [IconButton(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded), tooltip: 'تعديل')],
-      ),
-      body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
-        AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            MiniIcon(Icons.person_rounded, color: stateColor, box: 38),
-            const SizedBox(width: 12),
-            Expanded(child: Text(asText(customer['name']), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-            OnlinePill(online: online),
-          ]),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.12),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.35)),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('الدين', style: TextStyle(color: debt > 0 ? AppColors.warning : AppColors.green, fontSize: 12.5, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 6),
-              Text(money(debt), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+    return WillPopScope(
+      onWillPop: onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('تفاصيل المشترك'),
+          leading: IconButton(onPressed: openMenu, icon: const Icon(Icons.menu_rounded), tooltip: 'إجراءات'),
+          actions: [
+            IconButton(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded), tooltip: 'تعديل'),
+            IconButton(onPressed: () => Navigator.pop(context, dirty), icon: const Icon(Icons.arrow_forward_rounded), tooltip: 'رجوع'),
+          ],
+        ),
+        body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+          AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              MiniIcon(Icons.person_rounded, color: stateColor, box: 40),
+              const SizedBox(width: 12),
+              Expanded(child: Text(asText(customer['name']), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
+              OnlinePill(online: online),
             ]),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.12),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.35)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('الدين', style: TextStyle(color: debt > 0 ? AppColors.warning : AppColors.green, fontSize: 12.5, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 6),
+                Text(money(debt), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+              ]),
+            ),
+          ])),
+          const SizedBox(height: 12),
+          AppCard(
+            padding: const EdgeInsets.all(14),
+            color: AppColors.cardSoft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                QuickActionButton(icon: Icons.payments_rounded, label: 'تسديد', onTap: () => pay(context), color: AppColors.green),
+                const SizedBox(width: 14),
+                QuickActionButton(icon: Icons.add_card_rounded, label: 'إضافة دين', onTap: addDebt, color: AppColors.warning),
+                const SizedBox(width: 14),
+                QuickActionButton(icon: Icons.notes_rounded, label: 'ملاحظات', onTap: editNotes, color: AppColors.primary),
+                const SizedBox(width: 14),
+                QuickActionButton(icon: Icons.history_rounded, label: 'السجل', onTap: () => showActionMessage('السجل', 'يمكن إضافة سجل عمليات المشترك لاحقًا في مرحلة مستقلة.'), color: AppColors.purple),
+              ]),
+            ),
           ),
-        ])),
-        const SizedBox(height: 12),
-        AppCard(child: Column(children: [
-          InfoLine('الحالة', online ? 'متصل' : 'غير متصل', Icons.wifi_rounded, valueColor: stateColor),
-          InfoLine('الأيام المتبقية', remainingDetailedText(customer), Icons.timelapse_rounded, valueColor: remainingBadgeColor(customerRemainingDays(customer))),
-          InfoLine('سعر الاشتراك', money(customer['price']), Icons.payments_rounded),
-          InfoLine('نوع الاشتراك', asText(customer['package']), Icons.speed_rounded),
-          InfoLine('المدير', asText(customer['sasParentUsername'], 'غير متوفر'), Icons.admin_panel_settings_rounded),
-          InfoLine('اليوزر', asText(customer['sasUsername']), Icons.alternate_email_rounded),
-          InfoLine('رقم الهاتف', asText(customer['phone'], asText(customer['sasPhone'], 'غير متوفر')), Icons.phone_rounded),
-          InfoLine('تاريخ انتهاء الاشتراك', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
-          InfoLine('IP', asText(customer['sasIp'], 'غير متوفر'), Icons.lan_rounded),
-          InfoLine('البرج', asText(customer['tower']), Icons.cell_tower_rounded),
-          InfoLine('السكتر', asText(customer['sector']), Icons.settings_input_antenna_rounded),
-          InfoLine('ملاحظات', asText(customer['notes']), Icons.notes_rounded, last: true),
-        ])),
-        const SizedBox(height: 14),
-        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 18), label: const Text('تسديد'))),
-      ]),
+          const SizedBox(height: 14),
+          AppCard(child: Column(children: [
+            InfoLine('الحالة', online ? 'متصل' : 'غير متصل', Icons.wifi_rounded, valueColor: stateColor),
+            InfoLine('الأيام المتبقية', remainingDetailedText(customer), Icons.timelapse_rounded, valueColor: remainingBadgeColor(customerRemainingDays(customer))),
+            InfoLine('سعر الاشتراك', money(customer['price']), Icons.payments_rounded),
+            InfoLine('نوع الاشتراك', asText(customer['package']), Icons.speed_rounded),
+            InfoLine('المدير', asText(customer['sasParentUsername'], 'غير متوفر'), Icons.admin_panel_settings_rounded),
+            InfoLine('اليوزر', asText(customer['sasUsername']), Icons.alternate_email_rounded),
+            InfoLine('رقم الهاتف', asText(customer['phone'], asText(customer['sasPhone'], 'غير متوفر')), Icons.phone_rounded),
+            InfoLine('تاريخ انتهاء الاشتراك', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
+            InfoLine('IP', asText(customer['sasIp'], 'غير متوفر'), Icons.lan_rounded),
+            InfoLine('البرج', asText(customer['tower']), Icons.cell_tower_rounded),
+            InfoLine('السكتر', asText(customer['sector']), Icons.settings_input_antenna_rounded),
+            InfoLine('ملاحظات', asText(customer['notes']), Icons.notes_rounded, last: true),
+          ])),
+        ]),
+      ),
+    );
+  }
+}
+
+class QuickActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+  const QuickActionButton({super.key, required this.icon, required this.label, required this.onTap, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: SizedBox(
+        width: 86,
+        child: Column(children: [
+          Container(
+            width: 78,
+            height: 78,
+            decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.border)),
+            child: Center(child: Icon(icon, size: 30, color: color)),
+          ),
+          const SizedBox(height: 8),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.8, fontWeight: FontWeight.w700, color: AppColors.muted)),
+        ]),
+      ),
     );
   }
 }
@@ -1624,7 +1956,7 @@ class _PaymentPageState extends State<PaymentPage> {
       final result = await widget.api.addPayment(widget.customer['id'], {'amount': asInt(amount.text), 'note': note.text.trim()});
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(asText(result['message'], 'تمت العملية'))));
-      if (result['ok'] == true) Navigator.pop(context, true);
+      if (result['ok'] == true) Navigator.pop(context, result['customer'] ?? {'updated': true});
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('خطأ: $e')));
     } finally {

@@ -673,12 +673,13 @@ async function dbAddPayment(customerId, body) {
      VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [paymentId, defaultCompanyId, customerId, amount, paidAt, expiresAt || null, body.note || '']
   );
-  await pool.query(
+  const updated = await pool.query(
     `UPDATE customers SET expires_at=$3, debt=GREATEST(debt - $4, 0), updated_at=NOW()
-     WHERE company_id=$1 AND id=$2`,
+     WHERE company_id=$1 AND id=$2
+     RETURNING *`,
     [defaultCompanyId, customerId, expiresAt || null, amount]
   );
-  return { ok: true, message: 'تم تسجيل الدفعة', paymentId };
+  return { ok: true, message: 'تم تسجيل الدفعة', paymentId, customer: normalizeCustomer(updated.rows[0]) };
 }
 
 
