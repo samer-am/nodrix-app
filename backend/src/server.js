@@ -281,6 +281,7 @@ function mapUniqueFiUser(user) {
     package: user?.profile_details?.name || '',
     status: mapUniqueFiStatus(user),
     expiresAt: cleanDate(user?.expiration),
+    expiryRaw: user?.expiration || '',
     lastOnline: user?.last_online || null,
     parentUsername: user?.parent_username || '',
     debtDays: toInt(user?.debt_days),
@@ -298,6 +299,10 @@ function toInt(value, fallback = 0) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function baghdadDateIso(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Baghdad', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 }
 
 function addDays(days) {
@@ -325,7 +330,7 @@ function statusFromExpiry(expiresAt, savedStatus = 'active') {
   if (savedStatus === 'paused') return 'paused';
   const clean = cleanDate(expiresAt);
   if (!clean) return savedStatus || 'unknown';
-  const today = new Date(`${todayIso()}T00:00:00Z`);
+  const today = new Date(`${baghdadDateIso()}T00:00:00Z`);
   const exp = new Date(`${clean}T00:00:00Z`);
   const diffDays = Math.ceil((exp.getTime() - today.getTime()) / 86400000);
   if (diffDays < 0) return 'expired';
@@ -359,6 +364,7 @@ function normalizeCustomer(row) {
     sasStatus: row.sas_status || '',
     sasPhone: row.sas_phone || '',
     sasIp: row.sas_ip || '',
+    sasExpiryRaw: row.sas_expiry_raw || '',
     sasMac: row.sas_mac || '',
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : '',
     sasRemainingDays: row.sas_remaining_days ?? null,
@@ -488,6 +494,7 @@ async function migrateDatabase() {
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_last_online TEXT;
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_daily_traffic_gb NUMERIC;
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_parent_username TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS sas_expiry_raw TEXT;
   `);
 
   await pool.query(`
@@ -556,14 +563,16 @@ async function dbCustomer(customerId) {
 
 async function dbDashboard() {
   const customers = await dbCustomers();
+  const today = baghdadDateIso();
+  const monthStart = today.slice(0, 8) + '01';
   const paymentsToday = await pool.query(
-    `SELECT COALESCE(SUM(amount),0)::int AS total FROM payments WHERE company_id = $1 AND paid_at = CURRENT_DATE`,
-    [defaultCompanyId]
+    `SELECT COALESCE(SUM(amount),0)::int AS total FROM payments WHERE company_id = $1 AND paid_at = $2::date`,
+    [defaultCompanyId, today]
   );
   const paymentsMonth = await pool.query(
     `SELECT COALESCE(SUM(amount),0)::int AS total FROM payments
-     WHERE company_id = $1 AND paid_at >= DATE_TRUNC('month', CURRENT_DATE)::date`,
-    [defaultCompanyId]
+     WHERE company_id = $1 AND paid_at >= $2::date`,
+    [defaultCompanyId, monthStart]
   );
   return {
     ok: true,
@@ -656,7 +665,7 @@ async function dbAddPayment(customerId, body) {
   const customer = await dbCustomer(customerId);
   if (!customer) return { ok: false, message: 'المشترك غير موجود' };
   const paymentId = id('pay');
-  const paidAt = cleanDate(body.date || body.paidAt) || todayIso();
+  const paidAt = cleanDate(body.date || body.paidAt) || baghdadDateIso();
   const expiresAt = cleanDate(body.expiresAt || body.expires_at || customer.expiresAt);
   const amount = toInt(body.amount);
   await pool.query(
@@ -764,10 +773,10 @@ async function upsertSasCustomers(items, panelId = null) {
     const result = await pool.query(
       `INSERT INTO customers (
         id, company_id, name, phone, package_name, price, start_at, expires_at, status, debt,
-        sas_id, sas_username, sas_package, sas_status, sas_start_date, sas_expiry_date, sas_phone, sas_ip, sas_mac,
+        sas_id, sas_username, sas_package, sas_status, sas_start_date, sas_expiry_date, sas_phone, sas_ip, sas_expiry_raw, sas_mac,
         sas_remaining_days, sas_online_status, sas_last_online, sas_daily_traffic_gb, sas_parent_username,
         source, last_synced_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$15,$16,'',$17,$18,$19,$20,$21,'sas',NOW())
+      ) VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$15,$16,$17,'',$18,$19,$20,$21,$22,'sas',NOW())
       ON CONFLICT (company_id, sas_id) WHERE sas_id IS NOT NULL DO UPDATE SET
         name=EXCLUDED.name,
         phone=EXCLUDED.phone,
@@ -781,6 +790,7 @@ async function upsertSasCustomers(items, panelId = null) {
         sas_expiry_date=EXCLUDED.sas_expiry_date,
         sas_phone=EXCLUDED.sas_phone,
         sas_ip=EXCLUDED.sas_ip,
+        sas_expiry_raw=EXCLUDED.sas_expiry_raw,
         sas_remaining_days=EXCLUDED.sas_remaining_days,
         sas_online_status=EXCLUDED.sas_online_status,
         sas_last_online=EXCLUDED.sas_last_online,
@@ -807,6 +817,7 @@ async function upsertSasCustomers(items, panelId = null) {
         cleanDate(item.expiresAt),
         item.phone || '',
         item.staticIp || '',
+        item.expiryRaw || item.expiresAt || '',
         toInt(item.remainingDays),
         toInt(item.onlineStatus),
         item.lastOnline || '',
@@ -1045,6 +1056,26 @@ app.get('/api/dashboard', async (req, res) => {
     res.status(500).json({ ok: false, message: error.message });
   }
 });
+app.get('/api/reports/income-month', async (req, res) => {
+  try {
+    if (!pool) return res.json({ ok: true, days: [] });
+    const today = baghdadDateIso();
+    const monthStart = today.slice(0, 8) + '01';
+    const result = await pool.query(
+      `SELECT paid_at::text AS date, COALESCE(SUM(amount),0)::int AS total
+       FROM payments
+       WHERE company_id = $1 AND paid_at >= $2::date
+       GROUP BY paid_at
+       HAVING COALESCE(SUM(amount),0) > 0
+       ORDER BY paid_at DESC`,
+      [defaultCompanyId, monthStart]
+    );
+    res.json({ ok: true, days: result.rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
 
 app.get('/api/customers', async (req, res) => {
   try {

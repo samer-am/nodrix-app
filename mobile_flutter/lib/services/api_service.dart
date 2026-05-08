@@ -75,6 +75,14 @@ class ApiService {
     return _readMap(response);
   }
 
+  Future<List<Map<String, dynamic>>> getIncomeMonthDays() async {
+    final response = await http.get(_uri('/api/reports/income-month'));
+    final data = await _readMap(response);
+    final rows = data['days'];
+    if (rows is List) return rows.cast<Map<String, dynamic>>();
+    return [];
+  }
+
   Future<List<Map<String, dynamic>>> getCustomers() async {
     final response = await http.get(_uri('/api/customers'));
     final decoded = jsonDecode(response.body);

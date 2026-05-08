@@ -187,30 +187,83 @@ String statusLabel(String status) {
   }
 }
 
-int? customerRemainingDays(Map<String, dynamic> c) {
-  final raw = c['sasRemainingDays'];
-  if (raw != null && raw.toString().trim().isNotEmpty && raw.toString() != 'null') {
-    final parsed = int.tryParse(raw.toString());
-    if (parsed != null) return parsed;
+
+DateTime? customerExpiryDateTime(Map<String, dynamic> c) {
+  final rawCandidates = [c['sasExpiryRaw'], c['sasExpiryDateTime'], c['expiresAt']];
+  for (final raw in rawCandidates) {
+    final value = raw?.toString().trim() ?? '';
+    if (value.isEmpty || value == '—' || value.toLowerCase() == 'invalid date') continue;
+    final normalized = value.contains(' ') ? value.replaceFirst(' ', 'T') : value;
+    final parsed = DateTime.tryParse(normalized);
+    if (parsed != null) {
+      if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+        return DateTime(parsed.year, parsed.month, parsed.day, 23, 59, 59);
+      }
+      return parsed;
+    }
+    final d = cleanDateText(value);
+    if (d.isNotEmpty) {
+      final parsedDate = DateTime.tryParse(d);
+      if (parsedDate != null) return DateTime(parsedDate.year, parsedDate.month, parsedDate.day, 23, 59, 59);
+    }
   }
-  final clean = cleanDateText(c['expiresAt']);
-  if (clean.isEmpty) return null;
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final exp = DateTime.tryParse(clean);
+  return null;
+}
+
+Duration? customerRemainingDuration(Map<String, dynamic> c) {
+  final exp = customerExpiryDateTime(c);
   if (exp == null) return null;
-  return DateTime(exp.year, exp.month, exp.day).difference(today).inDays;
+  return exp.difference(DateTime.now());
+}
+
+int? customerRemainingDays(Map<String, dynamic> c) {
+  final duration = customerRemainingDuration(c);
+  if (duration == null) {
+    final raw = c['sasRemainingDays'];
+    if (raw != null && raw.toString().trim().isNotEmpty && raw.toString() != 'null') {
+      return int.tryParse(raw.toString());
+    }
+    return null;
+  }
+  if (duration.isNegative) return -1;
+  return (duration.inHours / 24).ceil();
+}
+
+String remainingDetailedText(Map<String, dynamic> c) {
+  final duration = customerRemainingDuration(c);
+  if (duration == null) {
+    final days = customerRemainingDays(c);
+    if (days == null) return 'غير متوفر';
+    if (days <= 0) return 'منتهي';
+    if (days == 1) return 'أقل من يوم';
+    return '$days يوم';
+  }
+  if (duration.isNegative) return 'منتهي';
+  final hours = duration.inHours;
+  if (hours < 1) {
+    final minutes = duration.inMinutes.clamp(0, 59);
+    return '$minutes دقيقة';
+  }
+  if (hours < 24) return '$hours ساعة';
+  final days = (hours / 24).floor();
+  final restHours = hours % 24;
+  if (restHours == 0) return '$days يوم';
+  return '$days يوم و $restHours ساعة';
 }
 
 bool customerIsOnline(Map<String, dynamic> c) => asText(c['sasOnlineStatus'], '0') == '1';
 
 bool customerIsExpired(Map<String, dynamic> c) {
-  final days = customerRemainingDays(c);
+  final duration = customerRemainingDuration(c);
   final status = asText(c['status'], '').toLowerCase();
-  return status == 'expired' || (days != null && days <= 0);
+  if (duration != null) return duration.isNegative;
+  final days = customerRemainingDays(c);
+  return status == 'expired' || (days != null && days < 0);
 }
 
 bool customerExpiresSoon(Map<String, dynamic> c) {
+  final duration = customerRemainingDuration(c);
+  if (duration != null) return !duration.isNegative && duration.inHours <= 72;
   final days = customerRemainingDays(c);
   return days != null && days > 0 && days <= 3;
 }
@@ -246,7 +299,7 @@ Color remainingBadgeColor(int? days) {
 String remainingBadgeText(int? days) {
   if (days == null) return 'غير متوفر';
   if (days <= 0) return 'منتهي';
-  if (days == 1) return 'يوم واحد';
+  if (days == 1) return 'أقل من يوم';
   if (days == 2) return 'يومان';
   if (days <= 10) return '$days أيام';
   return '$days يوم';
@@ -261,6 +314,7 @@ String normalizedSearchText(Map<String, dynamic> c) {
     c['package'],
     c['tower'],
     c['sector'],
+    c['sasIp'],
   ].map((e) => asText(e, '')).join(' ').toLowerCase();
 }
 
@@ -764,10 +818,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int index = 0;
   int refreshToken = 0;
+  String customersInitialFilter = 'all';
   Timer? syncTimer;
   bool syncRunning = false;
   DateTime? lastAutoSync;
   void refresh() => setState(() => refreshToken++);
+
+  void openCustomersFilter(String filter) {
+    setState(() {
+      customersInitialFilter = filter;
+      index = 0;
+      refreshToken++;
+    });
+  }
 
   @override
   void initState() {
@@ -827,8 +890,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CustomersPage(key: ValueKey('customers-$refreshToken'), api: widget.api),
-      DashboardPage(key: ValueKey('dash-$refreshToken'), api: widget.api),
+      CustomersPage(key: ValueKey('customers-$refreshToken-$customersInitialFilter'), api: widget.api, initialFilter: customersInitialFilter),
+      DashboardPage(key: ValueKey('dash-$refreshToken'), api: widget.api, onOpenFilter: openCustomersFilter),
       DevicesPage(key: ValueKey('devices-$refreshToken'), api: widget.api),
       MorePage(key: ValueKey('more-$refreshToken'), api: widget.api, onLogout: logout),
     ];
@@ -903,7 +966,8 @@ class PageFrame extends StatelessWidget {
 
 class CustomersPage extends StatefulWidget {
   final ApiService api;
-  const CustomersPage({super.key, required this.api});
+  final String initialFilter;
+  const CustomersPage({super.key, required this.api, this.initialFilter = 'all'});
   @override
   State<CustomersPage> createState() => _CustomersPageState();
 }
@@ -912,14 +976,13 @@ class _CustomersPageState extends State<CustomersPage> {
   late Future<List<Map<String, dynamic>>> future;
   String query = '';
   String filter = 'all';
-  String sortMode = 'online_first';
-  bool showPageFilter = false;
-  int page = 1;
-  final int pageSize = 20;
+  String sortMode = 'name';
+
 
   @override
   void initState() {
     super.initState();
+    filter = widget.initialFilter;
     future = widget.api.getCustomers();
   }
 
@@ -932,6 +995,8 @@ class _CustomersPageState extends State<CustomersPage> {
 
   bool matchesFilter(Map<String, dynamic> c, String value) {
     switch (value) {
+      case 'active':
+        return !customerIsExpired(c) && !customerExpiresSoon(c);
       case 'online':
         return customerIsOnline(c);
       case 'offline':
@@ -965,32 +1030,35 @@ class _CustomersPageState extends State<CustomersPage> {
     final aName = asText(a['name']).toLowerCase();
     final bName = asText(b['name']).toLowerCase();
     switch (sortMode) {
-      case 'remaining_low':
-        return aDays.compareTo(bDays);
-      case 'remaining_high':
-        return bDays.compareTo(aDays);
-      case 'expiry_near':
+      case 'start_date':
+        return cleanDateText(a['startAt']).compareTo(cleanDateText(b['startAt']));
+      case 'expiry_date':
         return cleanDateText(a['expiresAt']).compareTo(cleanDateText(b['expiresAt']));
-      case 'traffic_high':
-        return customerDailyTraffic(b).compareTo(customerDailyTraffic(a));
-      case 'name':
+      case 'debt_high':
+        return customerDebtValue(b).compareTo(customerDebtValue(a));
+      case 'price_high':
+        return asInt(b['price']).compareTo(asInt(a['price']));
+      case 'notes_first':
+        final an = asText(a['notes'], '').isNotEmpty ? 1 : 0;
+        final bn = asText(b['notes'], '').isNotEmpty ? 1 : 0;
+        final byNotes = bn.compareTo(an);
+        if (byNotes != 0) return byNotes;
         return aName.compareTo(bName);
-      case 'online_first':
+      case 'name':
       default:
-        final online = (customerIsOnline(b) ? 1 : 0).compareTo(customerIsOnline(a) ? 1 : 0);
-        if (online != 0) return online;
-        return aDays.compareTo(bDays);
+        return aName.compareTo(bName);
     }
   }
 
   String sortLabel() {
     switch (sortMode) {
-      case 'remaining_low': return 'الأيام الأقل أولًا';
-      case 'remaining_high': return 'الأيام الأعلى أولًا';
-      case 'expiry_near': return 'الانتهاء الأقرب';
-      case 'traffic_high': return 'الأكثر استهلاكًا';
-      case 'name': return 'الاسم A-Z';
-      default: return 'المتصلين أولًا';
+      case 'start_date': return 'بدء الاشتراك';
+      case 'expiry_date': return 'انتهاء الاشتراك';
+      case 'debt_high': return 'دين المشترك';
+      case 'price_high': return 'سعر الاشتراك';
+      case 'notes_first': return 'الملاحظات أولًا';
+      case 'name':
+      default: return 'الاسم';
     }
   }
 
@@ -1005,17 +1073,17 @@ class _CustomersPageState extends State<CustomersPage> {
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('ترتيب المشتركين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
-            sortTile('online_first', 'المتصلين أولًا', Icons.wifi_rounded),
-            sortTile('remaining_low', 'الأيام المتبقية الأقل أولًا', Icons.timelapse_rounded),
-            sortTile('remaining_high', 'الأيام المتبقية الأعلى أولًا', Icons.trending_up_rounded),
-            sortTile('expiry_near', 'تاريخ الانتهاء الأقرب', Icons.event_busy_rounded),
-            sortTile('traffic_high', 'الأكثر استهلاكًا اليوم', Icons.data_usage_rounded),
-            sortTile('name', 'الاسم A-Z', Icons.sort_by_alpha_rounded),
+            sortTile('name', 'الاسم', Icons.sort_by_alpha_rounded),
+            sortTile('start_date', 'بدء الاشتراك', Icons.calendar_month_rounded),
+            sortTile('expiry_date', 'انتهاء الاشتراك', Icons.event_busy_rounded),
+            sortTile('debt_high', 'دين المشترك', Icons.account_balance_wallet_rounded),
+            sortTile('price_high', 'سعر الاشتراك', Icons.payments_rounded),
+            sortTile('notes_first', 'الملاحظات أولًا', Icons.notes_rounded),
           ]),
         ),
       ),
     );
-    if (selected != null) setState(() { sortMode = selected; page = 1; });
+    if (selected != null) setState(() => sortMode = selected);
   }
 
   Widget sortTile(String value, String label, IconData icon) {
@@ -1036,7 +1104,7 @@ class _CustomersPageState extends State<CustomersPage> {
       padding: const EdgeInsetsDirectional.only(end: 8),
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
-        onTap: () => setState(() { filter = value; page = 1; }),
+        onTap: () => setState(() => filter = value),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -1062,46 +1130,6 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
-  Widget pageSelector(int totalPages) {
-    if (totalPages <= 1) return const SizedBox.shrink();
-    return AppCard(
-      padding: const EdgeInsets.all(10),
-      color: AppColors.panel,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text('صفحات النتائج: صفحة $page من $totalPages', style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
-          TextButton.icon(
-            onPressed: () => setState(() => showPageFilter = !showPageFilter),
-            icon: Icon(showPageFilter ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 17),
-            label: Text(showPageFilter ? 'إخفاء الصفحات' : 'إظهار الصفحات'),
-          ),
-        ]),
-        if (showPageFilter) ...[
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              OutlinedButton(onPressed: page > 1 ? () => setState(() => page--) : null, child: const Text('السابق')),
-              const SizedBox(width: 8),
-              for (var i = 1; i <= totalPages; i++) Padding(
-                padding: const EdgeInsetsDirectional.only(end: 7),
-                child: ChoiceChip(
-                  selected: page == i,
-                  label: Text('$i'),
-                  selectedColor: AppColors.primary,
-                  backgroundColor: AppColors.card,
-                  labelStyle: TextStyle(color: page == i ? Colors.white : AppColors.muted, fontWeight: FontWeight.w900),
-                  side: const BorderSide(color: AppColors.border),
-                  onSelected: (_) => setState(() => page = i),
-                ),
-              ),
-              OutlinedButton(onPressed: page < totalPages ? () => setState(() => page++) : null, child: const Text('التالي')),
-            ]),
-          ),
-        ],
-      ]),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1110,23 +1138,20 @@ class _CustomersPageState extends State<CustomersPage> {
       builder: (context, snapshot) {
         final all = snapshot.data ?? [];
         final items = applyFilters(all);
-        final totalPages = items.isEmpty ? 1 : ((items.length + pageSize - 1) ~/ pageSize);
-        final int safePage = page.clamp(1, totalPages).toInt();
-        if (safePage != page) WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => page = safePage));
-        final start = (safePage - 1) * pageSize;
-        final visible = items.skip(start).take(pageSize).toList();
+
         return PageFrame(
           title: 'المشتركين',
           subtitle: 'آخر مزامنة تظهر من صفحة الساس — البحث والفلاتر محلية وسريعة',
           action: IconButton.filledTonal(onPressed: reload, icon: const Icon(Icons.refresh_rounded, size: 20), tooltip: 'تحديث'),
           children: [
             TextField(
-              onChanged: (v) => setState(() { query = v; page = 1; }),
+              onChanged: (v) => setState(() => query = v),
               decoration: const InputDecoration(hintText: 'ابحث بالاسم، اليوزر، الهاتف، أو الباقة', prefixIcon: Icon(Icons.search_rounded, size: 19)),
             ),
             const SizedBox(height: 12),
             SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
               filterChipPro('all', 'الكل', all.length, Icons.people_alt_rounded),
+              filterChipPro('active', 'فعال', filterCount(all, 'active'), Icons.check_circle_rounded),
               filterChipPro('online', 'المتصلين', filterCount(all, 'online'), Icons.wifi_rounded),
               filterChipPro('offline', 'غير المتصلين', filterCount(all, 'offline'), Icons.wifi_off_rounded),
               filterChipPro('expired', 'المنتهين', filterCount(all, 'expired'), Icons.event_busy_rounded),
@@ -1144,8 +1169,6 @@ class _CustomersPageState extends State<CustomersPage> {
               ),
             ]),
             const SizedBox(height: 12),
-            pageSelector(totalPages),
-            if (totalPages > 1) const SizedBox(height: 12),
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
             if (snapshot.hasError) AppCard(child: Text('تعذر جلب المشتركين: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
             if (snapshot.hasData && items.isEmpty) AppCard(child: Column(children: const [
@@ -1155,13 +1178,14 @@ class _CustomersPageState extends State<CustomersPage> {
               SizedBox(height: 4),
               Text('غيّر الفلتر أو البحث الحالي.', style: TextStyle(color: AppColors.muted, fontSize: 12)),
             ])),
-            for (final customer in visible) Padding(padding: const EdgeInsets.only(bottom: 12), child: CustomerCard(api: widget.api, customer: customer, onChanged: reload)),
+            for (final customer in items) Padding(padding: const EdgeInsets.only(bottom: 12), child: CustomerCard(api: widget.api, customer: customer, onChanged: reload)),
           ],
         );
       },
     );
   }
 }
+
 
 class CustomerCard extends StatelessWidget {
   final ApiService api;
@@ -1171,11 +1195,6 @@ class CustomerCard extends StatelessWidget {
 
   Future<void> details(BuildContext context) async {
     final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerDetailsPage(api: api, customer: customer)));
-    if (ok == true) onChanged();
-  }
-
-  Future<void> edit(BuildContext context) async {
-    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CustomerFormPage(api: api, customer: customer)));
     if (ok == true) onChanged();
   }
 
@@ -1189,65 +1208,65 @@ class CustomerCard extends StatelessWidget {
     final days = customerRemainingDays(customer);
     final online = customerIsOnline(customer);
     final badgeColor = remainingBadgeColor(days);
-    final status = customerIsExpired(customer) ? 'expired' : (customerExpiresSoon(customer) ? 'expires_soon' : asText(customer['status'], 'active'));
     final username = asText(customer['sasUsername'], asText(customer['phone']));
     final packageName = asText(customer['package']);
-    return AppCard(
-      padding: const EdgeInsets.all(14),
-      color: AppColors.card,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          MiniIcon(Icons.person_rounded, color: online ? AppColors.green : AppColors.faint, box: 34),
-          const SizedBox(width: 10),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(asText(customer['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, height: 1.2)),
-            const SizedBox(height: 4),
-            Row(children: [
-              Flexible(child: Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
-              const SizedBox(width: 8),
-              Container(width: 4, height: 4, decoration: const BoxDecoration(color: AppColors.faint, shape: BoxShape.circle)),
-              const SizedBox(width: 8),
-              Flexible(child: Text(packageName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w900))),
-            ]),
-          ])),
-          const SizedBox(width: 10),
-          RemainingBadge(days: days, color: badgeColor),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          OnlinePill(online: online),
-          const SizedBox(width: 8),
-          StatusPill(status),
-          if (customerDebtValue(customer) > 0) ...[
-            const SizedBox(width: 8),
-            SmallTag(icon: Icons.account_balance_wallet_rounded, label: 'دين', color: AppColors.warning),
-          ],
-        ]),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
-          child: Column(children: [
-            Row(children: [
-              Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
-              Expanded(child: _MiniInfo('آخر ظهور', asText(customer['sasLastOnline'], 'غير متوفر'))),
-            ]),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: _MiniInfo('استهلاك اليوم', compactTrafficLabel(customer))),
-              Expanded(child: _MiniInfo('Parent', asText(customer['sasParentUsername'], 'غير متوفر'))),
-            ]),
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: () => details(context),
+      child: AppCard(
+        padding: const EdgeInsets.all(14),
+        color: AppColors.card,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            MiniIcon(Icons.person_rounded, color: online ? AppColors.green : AppColors.red, box: 34),
+            const SizedBox(width: 10),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(asText(customer['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, height: 1.2)),
+              const SizedBox(height: 4),
+              Row(children: [
+                Flexible(child: Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
+                const SizedBox(width: 8),
+                Container(width: 4, height: 4, decoration: const BoxDecoration(color: AppColors.faint, shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Flexible(child: Text(packageName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w900))),
+              ]),
+            ])),
+            const SizedBox(width: 10),
+            RemainingBadge(days: days, color: badgeColor, customText: remainingDetailedText(customer)),
           ]),
-        ),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: OutlinedButton.icon(onPressed: () => details(context), icon: const Icon(Icons.open_in_new_rounded, size: 16), label: const Text('تفاصيل'))),
-          const SizedBox(width: 8),
-          Expanded(child: OutlinedButton.icon(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded, size: 16), label: const Text('تعديل'))),
-          const SizedBox(width: 8),
-          Expanded(child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 16), label: const Text('دفعة'))),
+          const SizedBox(height: 12),
+          Row(children: [
+            OnlinePill(online: online),
+            const SizedBox(width: 8),
+            SmallTag(icon: Icons.data_usage_rounded, label: compactTrafficLabel(customer), color: AppColors.primary),
+            if (customerDebtValue(customer) > 0) ...[
+              const SizedBox(width: 8),
+              SmallTag(icon: Icons.account_balance_wallet_rounded, label: 'دين', color: AppColors.warning),
+            ],
+          ]),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+            child: Column(children: [
+              Row(children: [
+                Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
+                Expanded(child: _MiniInfo('آخر اتصال', asText(customer['sasLastOnline'], 'غير متوفر'))),
+              ]),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(child: _MiniInfo('IP', asText(customer['sasIp'], 'غير متوفر'))),
+                Expanded(child: _MiniInfo('المدير', asText(customer['sasParentUsername'], 'غير متوفر'))),
+              ]),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 16), label: const Text('تسديد')),
+          ),
         ]),
-      ]),
+      ),
     );
   }
 }
@@ -1255,7 +1274,8 @@ class CustomerCard extends StatelessWidget {
 class RemainingBadge extends StatelessWidget {
   final int? days;
   final Color color;
-  const RemainingBadge({super.key, required this.days, required this.color});
+  final String? customText;
+  const RemainingBadge({super.key, required this.days, required this.color, this.customText});
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1269,7 +1289,7 @@ class RemainingBadge extends StatelessWidget {
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(days == null ? Icons.help_outline_rounded : (days! <= 0 ? Icons.block_rounded : Icons.timelapse_rounded), size: 15, color: color),
         const SizedBox(height: 3),
-        Text(remainingBadgeText(days), textAlign: TextAlign.center, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900, height: 1.05)),
+        Text(customText ?? remainingBadgeText(days), textAlign: TextAlign.center, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900, height: 1.05)),
       ]),
     );
   }
@@ -1280,7 +1300,7 @@ class OnlinePill extends StatelessWidget {
   const OnlinePill({super.key, required this.online});
   @override
   Widget build(BuildContext context) {
-    final color = online ? AppColors.green : AppColors.faint;
+    final color = online ? AppColors.green : AppColors.red;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withOpacity(.35))),
@@ -1321,6 +1341,7 @@ class _MiniInfo extends StatelessWidget {
   ]);
 }
 
+
 class CustomerDetailsPage extends StatelessWidget {
   final ApiService api;
   final Map<String, dynamic> customer;
@@ -1336,45 +1357,116 @@ class CustomerDetailsPage extends StatelessWidget {
     if (ok == true && context.mounted) Navigator.pop(context, true);
   }
 
+  void showActionMessage(BuildContext context, String title, String message) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            Text(message, style: const TextStyle(color: AppColors.muted, height: 1.5)),
+            const SizedBox(height: 14),
+            SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('مفهوم'))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> openMenu(BuildContext context) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.panel,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('إجراءات المشترك', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            actionTile(context, 'change_package', 'تغير نوع الاشتراك', Icons.speed_rounded),
+            actionTile(context, 'extend', 'تمديد', Icons.more_time_rounded),
+            actionTile(context, 'rename', 'تعديل الاسم', Icons.drive_file_rename_outline_rounded),
+            actionTile(context, 'restrict', 'تقييد المستخدم', Icons.lock_rounded),
+          ]),
+        ),
+      ),
+    );
+    if (!context.mounted || selected == null) return;
+    if (selected == 'rename') return edit(context);
+    if (selected == 'change_package') {
+      showActionMessage(context, 'تغير نوع الاشتراك', 'سيتم جلب أنواع الاشتراكات من SAS لاحقًا. لا يمكن تغيير نوع الاشتراك إلا بعد انتهاء الاشتراك الحالي، وبعدها يستطيع المستخدم التجديد على النوع الجديد.');
+    } else if (selected == 'extend') {
+      showActionMessage(context, 'تمديد الاشتراك', 'التمديد يحتاج ربطًا مباشرًا مع أوامر SAS حتى لا يحصل اختلاف بين Nodrix واللوحة. سنناقشه كمرحلة مستقلة.');
+    } else if (selected == 'restrict') {
+      showActionMessage(context, 'تقييد المستخدم', 'التقييد يجب أن ينفذ داخل SAS فعليًا على اليوزر، لذلك سيُضاف بعد تثبيت أوامر التعديل على حسابات SAS.');
+    }
+  }
+
+  Widget actionTile(BuildContext context, String value, String label, IconData icon) => ListTile(
+    dense: true,
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(icon, color: AppColors.primary, size: 21),
+    title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+    onTap: () => Navigator.pop(context, value),
+  );
+
   @override
   Widget build(BuildContext context) {
+    final online = customerIsOnline(customer);
+    final stateColor = online ? AppColors.green : AppColors.red;
+    final debt = customerDebtValue(customer);
     return Scaffold(
-      appBar: AppBar(title: const Text('تفاصيل المشترك')),
+      appBar: AppBar(
+        title: const Text('تفاصيل المشترك'),
+        leading: IconButton(onPressed: () => openMenu(context), icon: const Icon(Icons.menu_rounded), tooltip: 'إجراءات'),
+        actions: [IconButton(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded), tooltip: 'تعديل')],
+      ),
       body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
         AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            MiniIcon(Icons.person_rounded, color: statusColor(asText(customer['status'], 'active')), box: 36),
+            MiniIcon(Icons.person_rounded, color: stateColor, box: 38),
             const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(asText(customer['name']), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 4),
-              Text(asText(customer['phone']), style: const TextStyle(color: AppColors.muted)),
-            ])),
-            StatusPill(asText(customer['status'], 'active')),
+            Expanded(child: Text(asText(customer['name']), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+            OnlinePill(online: online),
           ]),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.12),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: (debt > 0 ? AppColors.warning : AppColors.green).withOpacity(.35)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('الدين', style: TextStyle(color: debt > 0 ? AppColors.warning : AppColors.green, fontSize: 12.5, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text(money(debt), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+            ]),
+          ),
         ])),
         const SizedBox(height: 12),
         AppCard(child: Column(children: [
-          InfoLine('الباقة', asText(customer['package']), Icons.speed_rounded),
-          InfoLine('السعر', money(customer['price']), Icons.payments_rounded),
-          InfoLine('يوزر SAS', asText(customer['sasUsername']), Icons.alternate_email_rounded),
-          InfoLine('الأيام المتبقية', asText(customer['sasRemainingDays']), Icons.timelapse_rounded),
-          InfoLine('متصل الآن', asText(customer['sasOnlineStatus']) == '1' ? 'نعم' : 'لا', Icons.wifi_rounded),
-          InfoLine('ترافيك اليوم', asText(customer['sasDailyTrafficGb']) == '—' ? 'غير متوفر' : '${asText(customer['sasDailyTrafficGb'])} GB', Icons.data_usage_rounded),
-          InfoLine('مصدر البيانات', asText(customer['source'], 'manual') == 'sas' ? 'من الساس' : 'يدوي/محلي', Icons.sync_rounded),
-          InfoLine('تاريخ البداية', dateLabel(customer['startAt']), Icons.calendar_month_rounded),
-          InfoLine('تاريخ الانتهاء', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
+          InfoLine('الحالة', online ? 'متصل' : 'غير متصل', Icons.wifi_rounded, valueColor: stateColor),
+          InfoLine('الأيام المتبقية', remainingDetailedText(customer), Icons.timelapse_rounded, valueColor: remainingBadgeColor(customerRemainingDays(customer))),
+          InfoLine('سعر الاشتراك', money(customer['price']), Icons.payments_rounded),
+          InfoLine('نوع الاشتراك', asText(customer['package']), Icons.speed_rounded),
+          InfoLine('المدير', asText(customer['sasParentUsername'], 'غير متوفر'), Icons.admin_panel_settings_rounded),
+          InfoLine('اليوزر', asText(customer['sasUsername']), Icons.alternate_email_rounded),
+          InfoLine('رقم الهاتف', asText(customer['phone'], asText(customer['sasPhone'], 'غير متوفر')), Icons.phone_rounded),
+          InfoLine('تاريخ انتهاء الاشتراك', dateLabel(customer['expiresAt']), Icons.event_busy_rounded),
+          InfoLine('IP', asText(customer['sasIp'], 'غير متوفر'), Icons.lan_rounded),
           InfoLine('البرج', asText(customer['tower']), Icons.cell_tower_rounded),
           InfoLine('السكتر', asText(customer['sector']), Icons.settings_input_antenna_rounded),
-          InfoLine('الدين', money(customer['debt']), Icons.account_balance_wallet_rounded),
           InfoLine('ملاحظات', asText(customer['notes']), Icons.notes_rounded, last: true),
         ])),
         const SizedBox(height: 14),
-        Row(children: [
-          Expanded(child: OutlinedButton.icon(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded, size: 18), label: const Text('تعديل'))),
-          const SizedBox(width: 10),
-          Expanded(child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 18), label: const Text('تسجيل دفعة'))),
-        ]),
+        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 18), label: const Text('تسديد'))),
       ]),
     );
   }
@@ -1384,7 +1476,8 @@ class InfoLine extends StatelessWidget {
   final String label, value;
   final IconData icon;
   final bool last;
-  const InfoLine(this.label, this.value, this.icon, {super.key, this.last = false});
+  final Color? valueColor;
+  const InfoLine(this.label, this.value, this.icon, {super.key, this.last = false, this.valueColor});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -1394,7 +1487,7 @@ class InfoLine extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(child: Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12.5))),
         const SizedBox(width: 10),
-        Flexible(child: Text(value, textAlign: TextAlign.left, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13))),
+        Flexible(child: Text(value, textAlign: TextAlign.left, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: valueColor ?? AppColors.text))),
       ]),
     );
   }
@@ -1546,20 +1639,27 @@ class _PaymentPageState extends State<PaymentPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: const Text('تسجيل دفعة')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+    return Scaffold(appBar: AppBar(title: const Text('تسديد')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
       AppCard(child: Column(children: [
         input('المبلغ', amount, Icons.payments_rounded, type: TextInputType.number),
         const Padding(padding: EdgeInsets.only(bottom: 12), child: Text('تاريخ الدفع يحسب تلقائيًا. تاريخ الانتهاء يبقى من الساس ولا يكتب يدويًا.', style: TextStyle(color: AppColors.muted, fontSize: 12.5))),
         input('ملاحظة', note, Icons.notes_rounded),
-        FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded, size: 18), label: const Text('حفظ الدفعة')),
+        FilledButton.icon(onPressed: saving ? null : save, icon: const Icon(Icons.save_rounded, size: 18), label: const Text('حفظ التسديد')),
       ])),
     ]));
   }
 }
 
+
 class DashboardPage extends StatelessWidget {
   final ApiService api;
-  const DashboardPage({super.key, required this.api});
+  final void Function(String filter) onOpenFilter;
+  const DashboardPage({super.key, required this.api, required this.onOpenFilter});
+
+  void openIncomeMonth(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyIncomePage(api: api)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<Map<String, dynamic>>(
@@ -1579,14 +1679,45 @@ class DashboardPage extends StatelessWidget {
             ])),
             const SizedBox(height: 12),
             GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.45, children: [
-              StatCard('فعال', asText(data['activeCustomers'], '0'), Icons.check_rounded, AppColors.green),
-              StatCard('قريب الانتهاء', asText(data['expiresSoon'], '0'), Icons.priority_high_rounded, AppColors.warning),
-              StatCard('منتهي', asText(data['expiredCustomers'], '0'), Icons.close_rounded, AppColors.red),
-              StatCard('دخل الشهر', money(data['incomeMonth'] ?? 0), Icons.payments_rounded, AppColors.primary),
+              StatCard('فعال', asText(data['activeCustomers'], '0'), Icons.check_rounded, AppColors.green, onTap: () => onOpenFilter('active')),
+              StatCard('قريب الانتهاء', asText(data['expiresSoon'], '0'), Icons.priority_high_rounded, AppColors.warning, onTap: () => onOpenFilter('soon')),
+              StatCard('منتهي', asText(data['expiredCustomers'], '0'), Icons.close_rounded, AppColors.red, onTap: () => onOpenFilter('expired')),
+              StatCard('دخل الشهر', money(data['incomeMonth'] ?? 0), Icons.payments_rounded, AppColors.primary, onTap: () => openIncomeMonth(context)),
             ]),
           ],
         ]);
       },
+    );
+  }
+}
+
+class MonthlyIncomePage extends StatelessWidget {
+  final ApiService api;
+  const MonthlyIncomePage({super.key, required this.api});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('دخل الشهر')),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: api.getIncomeMonthDays(),
+        builder: (context, snapshot) {
+          final rows = snapshot.data ?? [];
+          return ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+            if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+            if (snapshot.hasError) AppCard(child: Text('تعذر جلب دخل الشهر: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
+            if (snapshot.hasData && rows.isEmpty) const AppCard(child: Text('لا يوجد دخل مسجل هذا الشهر.', style: TextStyle(color: AppColors.muted))),
+            for (final row in rows) Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: AppCard(child: Row(children: [
+                MiniIcon(Icons.calendar_today_rounded, color: AppColors.primary, box: 32),
+                const SizedBox(width: 10),
+                Expanded(child: Text(asText(row['date']), style: const TextStyle(fontWeight: FontWeight.w900))),
+                Text(money(row['total']), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+              ])),
+            ),
+          ]);
+        },
+      ),
     );
   }
 }
@@ -1606,13 +1737,14 @@ class StatCard extends StatelessWidget {
   final String title, value;
   final IconData icon;
   final Color color;
-  const StatCard(this.title, this.value, this.icon, this.color, {super.key});
+  final VoidCallback? onTap;
+  const StatCard(this.title, this.value, this.icon, this.color, {super.key, this.onTap});
   @override
-  Widget build(BuildContext context) => AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+  Widget build(BuildContext context) => InkWell(onTap: onTap, borderRadius: BorderRadius.circular(18), child: AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
     MiniIcon(icon, color: color, box: 32),
     Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
     Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w700)),
-  ]));
+  ])));
 }
 
 class DevicesPage extends StatelessWidget {
@@ -1705,7 +1837,7 @@ class MoreSection extends StatelessWidget {
   final List<Widget> children;
   const MoreSection({super.key, required this.title, required this.children});
   @override
-  Widget build(BuildContext context) => AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget build(BuildContext context) => InkWell(onTap: onTap, borderRadius: BorderRadius.circular(18), child: AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
     const SizedBox(height: 8),
     ...children,
