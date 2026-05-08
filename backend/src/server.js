@@ -288,7 +288,7 @@ function mapUniqueFiUser(user) {
     remainingDays: toInt(user?.remaining_days),
     onlineStatus: toInt(user?.online_status),
     dailyTrafficGb: bytesToGb(traffic),
-    staticIp: user?.current_ip || user?.framed_ip || user?.framedipaddress || user?.framed_ip_address || user?.ip || user?.online_ip || user?.session_ip || user?.acct_session?.framed_ip || user?.online_details?.ip || user?.radacct?.framedipaddress || user?.static_ip || '',
+    staticIp: user?.static_ip || '',
   };
 }
 
@@ -580,8 +580,6 @@ async function dbDashboard() {
     activeCustomers: customers.filter((c) => c.status === 'active').length,
     expiresSoon: customers.filter((c) => c.status === 'expires_soon').length,
     expiredCustomers: customers.filter((c) => c.status === 'expired').length,
-    onlineCustomers: customers.filter((c) => Number(c.sasOnlineStatus || 0) === 1).length,
-    offlineCustomers: customers.filter((c) => Number(c.sasOnlineStatus || 0) !== 1).length,
     totalDebt: customers.reduce((sum, c) => sum + toInt(c.debt), 0),
     incomeToday: paymentsToday.rows[0].total,
     incomeMonth: paymentsMonth.rows[0].total,
@@ -786,7 +784,6 @@ async function upsertSasCustomers(items, panelId = null) {
         package_name=EXCLUDED.package_name,
         expires_at=EXCLUDED.expires_at,
         status=EXCLUDED.status,
-        debt=EXCLUDED.debt,
         sas_username=EXCLUDED.sas_username,
         sas_package=EXCLUDED.sas_package,
         sas_status=EXCLUDED.sas_status,
