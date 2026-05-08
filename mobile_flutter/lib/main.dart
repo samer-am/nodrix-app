@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'services/api_service.dart';
 
-const String currentAppVersion = '1.0.7';
+const String currentAppVersion = '1.0.8';
 const String defaultBackendUrl = 'https://nodrix-app-production.up.railway.app';
 
 void main() {
@@ -186,6 +186,84 @@ String statusLabel(String status) {
       return status.isEmpty ? 'غير معروف' : status;
   }
 }
+
+int? customerRemainingDays(Map<String, dynamic> c) {
+  final raw = c['sasRemainingDays'];
+  if (raw != null && raw.toString().trim().isNotEmpty && raw.toString() != 'null') {
+    final parsed = int.tryParse(raw.toString());
+    if (parsed != null) return parsed;
+  }
+  final clean = cleanDateText(c['expiresAt']);
+  if (clean.isEmpty) return null;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final exp = DateTime.tryParse(clean);
+  if (exp == null) return null;
+  return DateTime(exp.year, exp.month, exp.day).difference(today).inDays;
+}
+
+bool customerIsOnline(Map<String, dynamic> c) => asText(c['sasOnlineStatus'], '0') == '1';
+
+bool customerIsExpired(Map<String, dynamic> c) {
+  final days = customerRemainingDays(c);
+  final status = asText(c['status'], '').toLowerCase();
+  return status == 'expired' || (days != null && days <= 0);
+}
+
+bool customerExpiresSoon(Map<String, dynamic> c) {
+  final days = customerRemainingDays(c);
+  return days != null && days > 0 && days <= 3;
+}
+
+num customerDebtValue(Map<String, dynamic> c) {
+  final candidates = [c['debt'], c['debtDays'], c['loanBalance'], c['sasDebtDays']];
+  for (final value in candidates) {
+    if (value == null) continue;
+    final n = num.tryParse(value.toString().replaceAll(',', ''));
+    if (n != null && n > 0) return n;
+  }
+  return 0;
+}
+
+num customerDailyTraffic(Map<String, dynamic> c) {
+  final n = num.tryParse(asText(c['sasDailyTrafficGb'], '0').replaceAll(',', ''));
+  return n ?? 0;
+}
+
+String compactTrafficLabel(Map<String, dynamic> c) {
+  final n = customerDailyTraffic(c);
+  if (n <= 0) return '0 GB';
+  return '${n.toStringAsFixed(n >= 10 ? 1 : 2)} GB';
+}
+
+Color remainingBadgeColor(int? days) {
+  if (days == null) return AppColors.faint;
+  if (days <= 0) return AppColors.red;
+  if (days <= 3) return AppColors.warning;
+  return AppColors.green;
+}
+
+String remainingBadgeText(int? days) {
+  if (days == null) return 'غير متوفر';
+  if (days <= 0) return 'منتهي';
+  if (days == 1) return 'يوم واحد';
+  if (days == 2) return 'يومان';
+  if (days <= 10) return '$days أيام';
+  return '$days يوم';
+}
+
+String normalizedSearchText(Map<String, dynamic> c) {
+  return [
+    c['name'],
+    c['phone'],
+    c['sasPhone'],
+    c['sasUsername'],
+    c['package'],
+    c['tower'],
+    c['sector'],
+  ].map((e) => asText(e, '')).join(' ').toLowerCase();
+}
+
 
 int compareVersions(String a, String b) {
   List<int> parse(String v) => v.split('.').map((e) => int.tryParse(e.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0).toList();
@@ -834,6 +912,10 @@ class _CustomersPageState extends State<CustomersPage> {
   late Future<List<Map<String, dynamic>>> future;
   String query = '';
   String filter = 'all';
+  String sortMode = 'online_first';
+  bool showPageFilter = false;
+  int page = 1;
+  final int pageSize = 20;
 
   @override
   void initState() {
@@ -848,25 +930,176 @@ class _CustomersPageState extends State<CustomersPage> {
     if (ok == true) reload();
   }
 
-  List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> items) {
-    return items.where((c) {
-      final q = query.trim();
-      final matchesQuery = q.isEmpty || '${c['name']} ${c['phone']} ${c['sasUsername']} ${c['tower']} ${c['sector']}'.contains(q);
-      final matchesFilter = filter == 'all' || c['status'] == filter;
-      return matchesQuery && matchesFilter;
-    }).toList();
+  bool matchesFilter(Map<String, dynamic> c, String value) {
+    switch (value) {
+      case 'online':
+        return customerIsOnline(c);
+      case 'offline':
+        return !customerIsOnline(c);
+      case 'expired':
+        return customerIsExpired(c);
+      case 'soon':
+        return customerExpiresSoon(c);
+      case 'debt':
+        return customerDebtValue(c) > 0;
+      default:
+        return true;
+    }
   }
 
-  Widget chip(String value, String label) {
-    final selected = filter == value;
-    return ChoiceChip(
-      selected: selected,
-      label: Text(label),
-      labelStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: selected ? Colors.white : AppColors.muted),
-      selectedColor: AppColors.primary,
+  int filterCount(List<Map<String, dynamic>> items, String value) => items.where((c) => matchesFilter(c, value)).length;
+
+  List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> items) {
+    final q = query.trim().toLowerCase();
+    final filtered = items.where((c) {
+      final matchesQuery = q.isEmpty || normalizedSearchText(c).contains(q);
+      return matchesQuery && matchesFilter(c, filter);
+    }).toList();
+    filtered.sort(compareCustomers);
+    return filtered;
+  }
+
+  int compareCustomers(Map<String, dynamic> a, Map<String, dynamic> b) {
+    final aDays = customerRemainingDays(a) ?? 999999;
+    final bDays = customerRemainingDays(b) ?? 999999;
+    final aName = asText(a['name']).toLowerCase();
+    final bName = asText(b['name']).toLowerCase();
+    switch (sortMode) {
+      case 'remaining_low':
+        return aDays.compareTo(bDays);
+      case 'remaining_high':
+        return bDays.compareTo(aDays);
+      case 'expiry_near':
+        return cleanDateText(a['expiresAt']).compareTo(cleanDateText(b['expiresAt']));
+      case 'traffic_high':
+        return customerDailyTraffic(b).compareTo(customerDailyTraffic(a));
+      case 'name':
+        return aName.compareTo(bName);
+      case 'online_first':
+      default:
+        final online = (customerIsOnline(b) ? 1 : 0).compareTo(customerIsOnline(a) ? 1 : 0);
+        if (online != 0) return online;
+        return aDays.compareTo(bDays);
+    }
+  }
+
+  String sortLabel() {
+    switch (sortMode) {
+      case 'remaining_low': return 'الأيام الأقل أولًا';
+      case 'remaining_high': return 'الأيام الأعلى أولًا';
+      case 'expiry_near': return 'الانتهاء الأقرب';
+      case 'traffic_high': return 'الأكثر استهلاكًا';
+      case 'name': return 'الاسم A-Z';
+      default: return 'المتصلين أولًا';
+    }
+  }
+
+  Future<void> chooseSort() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
       backgroundColor: AppColors.panel,
-      side: const BorderSide(color: AppColors.border),
-      onSelected: (_) => setState(() => filter = value),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('ترتيب المشتركين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            sortTile('online_first', 'المتصلين أولًا', Icons.wifi_rounded),
+            sortTile('remaining_low', 'الأيام المتبقية الأقل أولًا', Icons.timelapse_rounded),
+            sortTile('remaining_high', 'الأيام المتبقية الأعلى أولًا', Icons.trending_up_rounded),
+            sortTile('expiry_near', 'تاريخ الانتهاء الأقرب', Icons.event_busy_rounded),
+            sortTile('traffic_high', 'الأكثر استهلاكًا اليوم', Icons.data_usage_rounded),
+            sortTile('name', 'الاسم A-Z', Icons.sort_by_alpha_rounded),
+          ]),
+        ),
+      ),
+    );
+    if (selected != null) setState(() { sortMode = selected; page = 1; });
+  }
+
+  Widget sortTile(String value, String label, IconData icon) {
+    final selected = sortMode == value;
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: selected ? AppColors.primary : AppColors.muted, size: 21),
+      title: Text(label, style: TextStyle(fontWeight: FontWeight.w800, color: selected ? AppColors.text : AppColors.muted)),
+      trailing: selected ? const Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 20) : null,
+      onTap: () => Navigator.pop(context, value),
+    );
+  }
+
+  Widget filterChipPro(String value, String label, int count, IconData icon) {
+    final selected = filter == value;
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: () => setState(() { filter = value; page = 1; }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : AppColors.panel,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: selected ? AppColors.primary : AppColors.border),
+            boxShadow: selected ? [BoxShadow(color: AppColors.primary.withOpacity(.20), blurRadius: 14, offset: const Offset(0, 8))] : null,
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 16, color: selected ? Colors.white : AppColors.muted),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: selected ? Colors.white : AppColors.text)),
+            const SizedBox(width: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(color: selected ? Colors.white.withOpacity(.18) : AppColors.cardSoft, borderRadius: BorderRadius.circular(999)),
+              child: Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: selected ? Colors.white : AppColors.muted)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget pageSelector(int totalPages) {
+    if (totalPages <= 1) return const SizedBox.shrink();
+    return AppCard(
+      padding: const EdgeInsets.all(10),
+      color: AppColors.panel,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text('صفحات النتائج: صفحة $page من $totalPages', style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
+          TextButton.icon(
+            onPressed: () => setState(() => showPageFilter = !showPageFilter),
+            icon: Icon(showPageFilter ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 17),
+            label: Text(showPageFilter ? 'إخفاء الصفحات' : 'إظهار الصفحات'),
+          ),
+        ]),
+        if (showPageFilter) ...[
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              OutlinedButton(onPressed: page > 1 ? () => setState(() => page--) : null, child: const Text('السابق')),
+              const SizedBox(width: 8),
+              for (var i = 1; i <= totalPages; i++) Padding(
+                padding: const EdgeInsetsDirectional.only(end: 7),
+                child: ChoiceChip(
+                  selected: page == i,
+                  label: Text('$i'),
+                  selectedColor: AppColors.primary,
+                  backgroundColor: AppColors.card,
+                  labelStyle: TextStyle(color: page == i ? Colors.white : AppColors.muted, fontWeight: FontWeight.w900),
+                  side: const BorderSide(color: AppColors.border),
+                  onSelected: (_) => setState(() => page = i),
+                ),
+              ),
+              OutlinedButton(onPressed: page < totalPages ? () => setState(() => page++) : null, child: const Text('التالي')),
+            ]),
+          ),
+        ],
+      ]),
     );
   }
 
@@ -875,25 +1108,54 @@ class _CustomersPageState extends State<CustomersPage> {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: future,
       builder: (context, snapshot) {
-        final items = applyFilters(snapshot.data ?? []);
+        final all = snapshot.data ?? [];
+        final items = applyFilters(all);
+        final totalPages = items.isEmpty ? 1 : ((items.length + pageSize - 1) ~/ pageSize);
+        final int safePage = page.clamp(1, totalPages).toInt();
+        if (safePage != page) WidgetsBinding.instance.addPostFrameCallback((_) => setState(() => page = safePage));
+        final start = (safePage - 1) * pageSize;
+        final visible = items.skip(start).take(pageSize).toList();
         return PageFrame(
           title: 'المشتركين',
-          subtitle: 'إدارة الاشتراكات والدفعات',
-          action: FilledButton.icon(onPressed: addCustomer, icon: const Icon(Icons.add_rounded, size: 19), label: const Text('إضافة')),
+          subtitle: 'آخر مزامنة تظهر من صفحة الساس — البحث والفلاتر محلية وسريعة',
+          action: IconButton.filledTonal(onPressed: reload, icon: const Icon(Icons.refresh_rounded, size: 20), tooltip: 'تحديث'),
           children: [
             TextField(
-              onChanged: (v) => setState(() => query = v),
-              decoration: const InputDecoration(hintText: 'بحث بالاسم أو الهاتف أو البرج', prefixIcon: Icon(Icons.search_rounded, size: 19)),
+              onChanged: (v) => setState(() { query = v; page = 1; }),
+              decoration: const InputDecoration(hintText: 'ابحث بالاسم، اليوزر، الهاتف، أو الباقة', prefixIcon: Icon(Icons.search_rounded, size: 19)),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
-              chip('all', 'الكل'), const SizedBox(width: 8), chip('active', 'فعال'), const SizedBox(width: 8), chip('expires_soon', 'قريب'), const SizedBox(width: 8), chip('expired', 'منتهي'), const SizedBox(width: 8), chip('paused', 'موقوف'),
+              filterChipPro('all', 'الكل', all.length, Icons.people_alt_rounded),
+              filterChipPro('online', 'المتصلين', filterCount(all, 'online'), Icons.wifi_rounded),
+              filterChipPro('offline', 'غير المتصلين', filterCount(all, 'offline'), Icons.wifi_off_rounded),
+              filterChipPro('expired', 'المنتهين', filterCount(all, 'expired'), Icons.event_busy_rounded),
+              filterChipPro('soon', 'قريب الانتهاء', filterCount(all, 'soon'), Icons.warning_rounded),
+              filterChipPro('debt', 'عليهم دين', filterCount(all, 'debt'), Icons.account_balance_wallet_rounded),
             ])),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(onPressed: chooseSort, icon: const Icon(Icons.tune_rounded, size: 18), label: Text('ترتيب: ${sortLabel()}'))),
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.border)),
+                child: Text('${items.length} نتيجة', style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            pageSelector(totalPages),
+            if (totalPages > 1) const SizedBox(height: 12),
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
             if (snapshot.hasError) AppCard(child: Text('تعذر جلب المشتركين: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
-            if (snapshot.hasData && items.isEmpty) const AppCard(child: Text('لا توجد نتائج مطابقة', style: TextStyle(color: AppColors.muted))),
-            for (final customer in items) Padding(padding: const EdgeInsets.only(bottom: 12), child: CustomerCard(api: widget.api, customer: customer, onChanged: reload)),
+            if (snapshot.hasData && items.isEmpty) AppCard(child: Column(children: const [
+              Icon(Icons.search_off_rounded, color: AppColors.muted, size: 32),
+              SizedBox(height: 8),
+              Text('لا توجد نتائج مطابقة', style: TextStyle(color: AppColors.text, fontWeight: FontWeight.w900)),
+              SizedBox(height: 4),
+              Text('غيّر الفلتر أو البحث الحالي.', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+            ])),
+            for (final customer in visible) Padding(padding: const EdgeInsets.only(bottom: 12), child: CustomerCard(api: widget.api, customer: customer, onChanged: reload)),
           ],
         );
       },
@@ -924,39 +1186,128 @@ class CustomerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = asText(customer['status'], 'active');
+    final days = customerRemainingDays(customer);
+    final online = customerIsOnline(customer);
+    final badgeColor = remainingBadgeColor(days);
+    final status = customerIsExpired(customer) ? 'expired' : (customerExpiresSoon(customer) ? 'expires_soon' : asText(customer['status'], 'active'));
+    final username = asText(customer['sasUsername'], asText(customer['phone']));
+    final packageName = asText(customer['package']);
     return AppCard(
       padding: const EdgeInsets.all(14),
+      color: AppColors.card,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          MiniIcon(Icons.person_rounded, color: statusColor(status), box: 32),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          MiniIcon(Icons.person_rounded, color: online ? AppColors.green : AppColors.faint, box: 34),
           const SizedBox(width: 10),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(asText(customer['name']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 3),
-            Text(asText(customer['phone']), style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
+            Text(asText(customer['name']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, height: 1.2)),
+            const SizedBox(height: 4),
+            Row(children: [
+              Flexible(child: Text(username, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.muted, fontSize: 12.5, fontWeight: FontWeight.w800))),
+              const SizedBox(width: 8),
+              Container(width: 4, height: 4, decoration: const BoxDecoration(color: AppColors.faint, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Flexible(child: Text(packageName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.primary, fontSize: 12.5, fontWeight: FontWeight.w900))),
+            ]),
           ])),
+          const SizedBox(width: 10),
+          RemainingBadge(days: days, color: badgeColor),
+        ]),
+        const SizedBox(height: 12),
+        Row(children: [
+          OnlinePill(online: online),
+          const SizedBox(width: 8),
           StatusPill(status),
+          if (customerDebtValue(customer) > 0) ...[
+            const SizedBox(width: 8),
+            SmallTag(icon: Icons.account_balance_wallet_rounded, label: 'دين', color: AppColors.warning),
+          ],
         ]),
         const SizedBox(height: 12),
-        Container(height: 1, color: AppColors.border),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: AppColors.panel, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+          child: Column(children: [
+            Row(children: [
+              Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
+              Expanded(child: _MiniInfo('آخر ظهور', asText(customer['sasLastOnline'], 'غير متوفر'))),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: _MiniInfo('استهلاك اليوم', compactTrafficLabel(customer))),
+              Expanded(child: _MiniInfo('Parent', asText(customer['sasParentUsername'], 'غير متوفر'))),
+            ]),
+          ]),
+        ),
         const SizedBox(height: 12),
         Row(children: [
-          Expanded(child: _MiniInfo('الباقة', asText(customer['package']))),
-          Expanded(child: _MiniInfo('اليوزر', asText(customer['sasUsername'], asText(customer['phone'])))),
-          Expanded(child: _MiniInfo('الانتهاء', dateLabel(customer['expiresAt']))),
-        ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: OutlinedButton(onPressed: () => details(context), child: const Text('تفاصيل'))),
+          Expanded(child: OutlinedButton.icon(onPressed: () => details(context), icon: const Icon(Icons.open_in_new_rounded, size: 16), label: const Text('تفاصيل'))),
           const SizedBox(width: 8),
-          Expanded(child: OutlinedButton(onPressed: () => edit(context), child: const Text('تعديل'))),
+          Expanded(child: OutlinedButton.icon(onPressed: () => edit(context), icon: const Icon(Icons.edit_rounded, size: 16), label: const Text('تعديل'))),
           const SizedBox(width: 8),
-          Expanded(child: FilledButton(onPressed: () => pay(context), child: const Text('دفعة'))),
+          Expanded(child: FilledButton.icon(onPressed: () => pay(context), icon: const Icon(Icons.payments_rounded, size: 16), label: const Text('دفعة'))),
         ]),
       ]),
     );
   }
+}
+
+class RemainingBadge extends StatelessWidget {
+  final int? days;
+  final Color color;
+  const RemainingBadge({super.key, required this.days, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 72),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(.55)),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(days == null ? Icons.help_outline_rounded : (days! <= 0 ? Icons.block_rounded : Icons.timelapse_rounded), size: 15, color: color),
+        const SizedBox(height: 3),
+        Text(remainingBadgeText(days), textAlign: TextAlign.center, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900, height: 1.05)),
+      ]),
+    );
+  }
+}
+
+class OnlinePill extends StatelessWidget {
+  final bool online;
+  const OnlinePill({super.key, required this.online});
+  @override
+  Widget build(BuildContext context) {
+    final color = online ? AppColors.green : AppColors.faint;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withOpacity(.35))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(online ? 'متصل' : 'غير متصل', style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900)),
+      ]),
+    );
+  }
+}
+
+class SmallTag extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  const SmallTag({super.key, required this.icon, required this.label, required this.color});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+    decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withOpacity(.3))),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 4),
+      Text(label, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w900)),
+    ]),
+  );
 }
 
 class _MiniInfo extends StatelessWidget {
