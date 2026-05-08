@@ -1837,11 +1837,16 @@ class MoreSection extends StatelessWidget {
   final List<Widget> children;
   const MoreSection({super.key, required this.title, required this.children});
   @override
-  Widget build(BuildContext context) => InkWell(onTap: onTap, borderRadius: BorderRadius.circular(18), child: AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
-    const SizedBox(height: 8),
-    ...children,
-  ]));
+  Widget build(BuildContext context) => AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(color: AppColors.muted, fontSize: 12, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            ...children,
+          ],
+        ),
+      );
 }
 
 class MoreTile extends StatelessWidget {
