@@ -975,14 +975,15 @@ class CustomersPage extends StatefulWidget {
 class _CustomersPageState extends State<CustomersPage> {
   late Future<List<Map<String, dynamic>>> future;
   String query = '';
-  String filter = 'all';
+  static const List<String> filterKeys = ['active', 'online', 'offline', 'soon', 'expired', 'debt'];
+  Set<String> activeFilters = {};
   String sortMode = 'name';
 
 
   @override
   void initState() {
     super.initState();
-    filter = widget.initialFilter;
+    if (widget.initialFilter != 'all') activeFilters = {widget.initialFilter};
     future = widget.api.getCustomers();
   }
 
@@ -1012,13 +1013,58 @@ class _CustomersPageState extends State<CustomersPage> {
     }
   }
 
+  bool get allFiltersSelected => activeFilters.isEmpty || filterKeys.every(activeFilters.contains);
+
   int filterCount(List<Map<String, dynamic>> items, String value) => items.where((c) => matchesFilter(c, value)).length;
+
+  bool customerMatchesActiveFilters(Map<String, dynamic> c) {
+    if (allFiltersSelected) return true;
+    for (final key in activeFilters) {
+      if (!matchesFilter(c, key)) return false;
+    }
+    return true;
+  }
+
+  String currentFilterLabel() {
+    if (allFiltersSelected) return 'الكل';
+    if (activeFilters.isEmpty) return 'الكل';
+    return activeFilters.map(filterSheetLabel).join(' + ');
+  }
+
+  IconData currentFilterIcon() {
+    if (allFiltersSelected || activeFilters.length != 1) return Icons.tune_rounded;
+    return filterSheetIcon(activeFilters.first);
+  }
+
+  Color currentFilterColor() {
+    if (allFiltersSelected || activeFilters.length != 1) return AppColors.primary;
+    return filterSheetColor(activeFilters.first);
+  }
+
+  void toggleFilterKey(String value) {
+    setState(() {
+      if (value == 'all') {
+        activeFilters = allFiltersSelected ? <String>{} : filterKeys.toSet();
+        return;
+      }
+      final next = activeFilters.toSet();
+      if (allFiltersSelected) next
+        ..clear()
+        ..addAll(filterKeys);
+      if (next.contains(value)) {
+        next.remove(value);
+      } else {
+        next.add(value);
+      }
+      activeFilters = next;
+    });
+  }
 
   List<Map<String, dynamic>> applyFilters(List<Map<String, dynamic>> items) {
     final q = query.trim().toLowerCase();
     final filtered = items.where((c) {
       final matchesQuery = q.isEmpty || normalizedSearchText(c).contains(q);
-      return matchesQuery && matchesFilter(c, filter);
+      return matchesQuery && customerMatchesActiveFilters(c);
     }).toList();
     filtered.sort(compareCustomers);
     return filtered;
@@ -1138,44 +1184,52 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   Future<void> chooseFilter(List<Map<String, dynamic>> all) async {
-    final selected = await showModalBottomSheet<String>(
+    await showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: AppColors.panel,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('فلترة المشتركين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            const Text('اختر القائمة التي تريد عرضها الآن.', style: TextStyle(color: AppColors.muted, fontSize: 12.5)),
-            const SizedBox(height: 14),
-            filterSheetTile('all', all.length),
-            const SizedBox(height: 10),
-            filterSheetTile('active', filterCount(all, 'active')),
-            const SizedBox(height: 10),
-            filterSheetTile('online', filterCount(all, 'online')),
-            const SizedBox(height: 10),
-            filterSheetTile('offline', filterCount(all, 'offline')),
-            const SizedBox(height: 10),
-            filterSheetTile('soon', filterCount(all, 'soon')),
-            const SizedBox(height: 10),
-            filterSheetTile('expired', filterCount(all, 'expired')),
-            const SizedBox(height: 10),
-            filterSheetTile('debt', filterCount(all, 'debt')),
-          ]),
-        ),
-      ),
+      builder: (_) => StatefulBuilder(builder: (sheetContext, sheetSetState) {
+        Widget localTile(String value, int count) => filterSheetTile(value, count, sheetSetState);
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(18, 14, 18, MediaQuery.of(sheetContext).padding.bottom + 18),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('فلترة المشتركين', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              const Text('يمكن اختيار أكثر من فئة. النتيجة تعرض المشتركين المطابقين لكل الشروط معًا.', style: TextStyle(color: AppColors.muted, fontSize: 12.5, height: 1.35)),
+              const SizedBox(height: 14),
+              localTile('all', all.length),
+              const SizedBox(height: 10),
+              localTile('active', filterCount(all, 'active')),
+              const SizedBox(height: 10),
+              localTile('online', filterCount(all, 'online')),
+              const SizedBox(height: 10),
+              localTile('offline', filterCount(all, 'offline')),
+              const SizedBox(height: 10),
+              localTile('soon', filterCount(all, 'soon')),
+              const SizedBox(height: 10),
+              localTile('expired', filterCount(all, 'expired')),
+              const SizedBox(height: 10),
+              localTile('debt', filterCount(all, 'debt')),
+              const SizedBox(height: 14),
+              SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('تطبيق الفلترة'))),
+            ]),
+          ),
+        );
+      }),
     );
-    if (selected != null) setState(() => filter = selected);
   }
 
-  Widget filterSheetTile(String value, int count) {
-    final selected = filter == value;
+  Widget filterSheetTile(String value, int count, StateSetter sheetSetState) {
+    final selected = value == 'all' ? allFiltersSelected : (!allFiltersSelected && activeFilters.contains(value));
     final color = filterSheetColor(value);
     return InkWell(
       borderRadius: BorderRadius.circular(24),
-      onTap: () => Navigator.pop(context, value),
+      onTap: () {
+        toggleFilterKey(value);
+        sheetSetState(() {});
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -1204,8 +1258,7 @@ class _CustomersPageState extends State<CustomersPage> {
           const SizedBox(width: 14),
           Expanded(
             child: Row(children: [
-              Text(filterSheetLabel(value), style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900, color: selected ? AppColors.text : AppColors.text)),
-              const Spacer(),
+              Expanded(child: Text(filterSheetLabel(value), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w900, color: AppColors.text))),
               Container(
                 width: 44,
                 height: 44,
@@ -1225,37 +1278,6 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
-  Widget filterChipPro(String value, String label, int count, IconData icon) {
-    final selected = filter == value;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(end: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(999),
-        onTap: () => setState(() => filter = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.primary : AppColors.panel,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: selected ? AppColors.primary : AppColors.border),
-            boxShadow: selected ? [BoxShadow(color: AppColors.primary.withOpacity(.20), blurRadius: 14, offset: const Offset(0, 8))] : null,
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 16, color: selected ? Colors.white : AppColors.muted),
-            const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: selected ? Colors.white : AppColors.text)),
-            const SizedBox(width: 7),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(color: selected ? Colors.white.withOpacity(.18) : AppColors.cardSoft, borderRadius: BorderRadius.circular(999)),
-              child: Text('$count', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: selected ? Colors.white : AppColors.muted)),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
 
 
   @override
@@ -1297,16 +1319,16 @@ class _CustomersPageState extends State<CustomersPage> {
                             width: 36,
                             height: 36,
                             decoration: BoxDecoration(
-                              color: filterSheetColor(filter).withOpacity(.16),
+                              color: currentFilterColor().withOpacity(.16),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Icon(filterSheetIcon(filter), size: 18, color: filterSheetColor(filter)),
+                            child: Icon(currentFilterIcon(), size: 18, color: currentFilterColor()),
                           ),
                           const SizedBox(width: 10),
                           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             const Text('الفلترة الحالية', style: TextStyle(color: AppColors.faint, fontSize: 11.5, fontWeight: FontWeight.w800)),
                             const SizedBox(height: 3),
-                            Text(filterSheetLabel(filter), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
+                            Text(currentFilterLabel(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900)),
                           ])),
                           const SizedBox(width: 8),
                           Container(
@@ -1713,7 +1735,7 @@ class _CustomerDetailsPageState extends State<CustomerDetailsPage> {
             IconButton(onPressed: () => Navigator.pop(context, dirty), icon: const Icon(Icons.arrow_forward_rounded), tooltip: 'رجوع'),
           ],
         ),
-        body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+        body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 96), children: [
           AppCard(color: AppColors.cardSoft, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               MiniIcon(Icons.person_rounded, color: stateColor, box: 40),
@@ -1897,15 +1919,42 @@ class _CustomerFormPageState extends State<CustomerFormPage> {
     );
   }
 
+
+  Widget packageSelect() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: widget.api.getCustomers(),
+      builder: (context, snapshot) {
+        final values = <String>{};
+        if (package.text.trim().isNotEmpty) values.add(package.text.trim());
+        for (final c in snapshot.data ?? const <Map<String, dynamic>>[]) {
+          final p = asText(c['package'], '');
+          if (p.isNotEmpty && p != '—') values.add(p);
+        }
+        if (values.isEmpty) return input('الباقة', package, Icons.speed_rounded);
+        final items = values.toList()..sort();
+        final current = values.contains(package.text.trim()) ? package.text.trim() : items.first;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: DropdownButtonFormField<String>(
+            value: current,
+            items: items.map((v) => DropdownMenuItem(value: v, child: Text(v, overflow: TextOverflow.ellipsis))).toList(),
+            onChanged: (v) => setState(() => package.text = v ?? ''),
+            decoration: const InputDecoration(labelText: 'الباقة من SAS', prefixIcon: Icon(Icons.speed_rounded, size: 18)),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(editing ? 'تعديل مشترك' : 'إضافة مشترك')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+      body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 96), children: [
         AppCard(child: Column(children: [
           input('اسم المشترك', name, Icons.person_rounded),
           input('الهاتف', phone, Icons.phone_rounded, type: TextInputType.phone),
-          input('الباقة', package, Icons.speed_rounded),
+          packageSelect(),
           input('السرعة', speed, Icons.bolt_rounded),
           input('السعر', price, Icons.payments_rounded, type: TextInputType.number),
           input('الدين', debt, Icons.account_balance_wallet_rounded, type: TextInputType.number),
@@ -1971,7 +2020,7 @@ class _PaymentPageState extends State<PaymentPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: const Text('تسديد')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+    return Scaffold(appBar: AppBar(title: const Text('تسديد')), body: ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 96), children: [
       AppCard(child: Column(children: [
         input('المبلغ', amount, Icons.payments_rounded, type: TextInputType.number),
         const Padding(padding: EdgeInsets.only(bottom: 12), child: Text('تاريخ الدفع يحسب تلقائيًا. تاريخ الانتهاء يبقى من الساس ولا يكتب يدويًا.', style: TextStyle(color: AppColors.muted, fontSize: 12.5))),
@@ -2012,6 +2061,7 @@ class DashboardPage extends StatelessWidget {
             const SizedBox(height: 12),
             GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.45, children: [
               StatCard('فعال', asText(data['activeCustomers'], '0'), Icons.check_rounded, AppColors.green, onTap: () => onOpenFilter('active')),
+              StatCard('المتصلين الحاليين', asText(data['onlineCustomers'], '0'), Icons.wifi_rounded, AppColors.primary, onTap: () => onOpenFilter('online')),
               StatCard('قريب الانتهاء', asText(data['expiresSoon'], '0'), Icons.priority_high_rounded, AppColors.warning, onTap: () => onOpenFilter('soon')),
               StatCard('منتهي', asText(data['expiredCustomers'], '0'), Icons.close_rounded, AppColors.red, onTap: () => onOpenFilter('expired')),
               StatCard('دخل الشهر', money(data['incomeMonth'] ?? 0), Icons.payments_rounded, AppColors.primary, onTap: () => openIncomeMonth(context)),
@@ -2034,7 +2084,7 @@ class MonthlyIncomePage extends StatelessWidget {
         future: api.getIncomeMonthDays(),
         builder: (context, snapshot) {
           final rows = snapshot.data ?? [];
-          return ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 28), children: [
+          return ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 96), children: [
             if (!snapshot.hasData && !snapshot.hasError) const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
             if (snapshot.hasError) AppCard(child: Text('تعذر جلب دخل الشهر: ${snapshot.error}', style: const TextStyle(color: AppColors.red))),
             if (snapshot.hasData && rows.isEmpty) const AppCard(child: Text('لا يوجد دخل مسجل هذا الشهر.', style: TextStyle(color: AppColors.muted))),
