@@ -222,7 +222,7 @@ function userIndexPayload(page = 1, rowsPerPage = 10) {
     direction: 'asc',
     sortBy: 'username',
     search: '',
-    columns: ['idx', 'username', 'firstname', 'lastname', 'expiration', 'parent_username', 'name', 'loan_balance', 'traffic', 'remaining_days'],
+    columns: ['idx', 'username', 'firstname', 'lastname', 'expiration', 'parent_username', 'name', 'loan_balance', 'traffic', 'remaining_days', 'static_ip', 'ip', 'ip_address', 'framed_ip_address'],
   };
 }
 
@@ -260,6 +260,32 @@ function bytesToGb(value) {
   return Math.round((n / 1024 / 1024 / 1024) * 100) / 100;
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text && text !== 'null' && text !== 'undefined' && text !== '—') return text;
+  }
+  return '';
+}
+
+function extractUniqueFiIp(user) {
+  return firstText(
+    user?.static_ip,
+    user?.ip,
+    user?.ip_address,
+    user?.framed_ip_address,
+    user?.framed_ip,
+    user?.current_ip,
+    user?.last_ip,
+    user?.ipv4,
+    user?.static_ip_details?.ip,
+    user?.static_ip_details?.static_ip,
+    user?.online_info?.ip,
+    user?.connection_details?.ip,
+    user?.status?.ip
+  );
+}
+
 function mapUniqueFiStatus(user) {
   if (Number(user?.enabled) !== 1) return 'paused';
   if (user?.status?.expiration === false) return 'expired';
@@ -288,7 +314,7 @@ function mapUniqueFiUser(user) {
     remainingDays: toInt(user?.remaining_days),
     onlineStatus: toInt(user?.online_status),
     dailyTrafficGb: bytesToGb(traffic),
-    staticIp: user?.static_ip || '',
+    staticIp: extractUniqueFiIp(user),
   };
 }
 
