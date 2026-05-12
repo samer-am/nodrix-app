@@ -23,7 +23,8 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> _postMap(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _postMap(
+      String path, Map<String, dynamic> body) async {
     final response = await http.post(
       _uri(path),
       headers: {'Content-Type': 'application/json'},
@@ -32,7 +33,8 @@ class ApiService {
     return _readMap(response);
   }
 
-  Future<Map<String, dynamic>> _putMap(String path, Map<String, dynamic> body) async {
+  Future<Map<String, dynamic>> _putMap(
+      String path, Map<String, dynamic> body) async {
     final response = await http.put(
       _uri(path),
       headers: {'Content-Type': 'application/json'},
@@ -67,7 +69,8 @@ class ApiService {
       'username': username,
       'password': password,
     });
-    if (data['ok'] == false) throw Exception(data['message'] ?? 'فشل حفظ الإعدادات');
+    if (data['ok'] == false)
+      throw Exception(data['message'] ?? 'فشل حفظ الإعدادات');
   }
 
   Future<Map<String, dynamic>> getDashboard() async {
@@ -90,7 +93,6 @@ class ApiService {
     throw Exception('استجابة المشتركين غير صحيحة');
   }
 
-
   Future<Map<String, dynamic>> getCustomer(dynamic id) async {
     final response = await http.get(_uri('/api/customers/$id'));
     return _readMap(response);
@@ -100,11 +102,13 @@ class ApiService {
     return _postMap('/api/customers', customer);
   }
 
-  Future<Map<String, dynamic>> updateCustomer(dynamic id, Map<String, dynamic> customer) {
+  Future<Map<String, dynamic>> updateCustomer(
+      dynamic id, Map<String, dynamic> customer) {
     return _putMap('/api/customers/$id', customer);
   }
 
-  Future<Map<String, dynamic>> addPayment(dynamic id, Map<String, dynamic> payment) {
+  Future<Map<String, dynamic>> addPayment(
+      dynamic id, Map<String, dynamic> payment) {
     return _postMap('/api/customers/$id/payments', payment);
   }
 
@@ -116,6 +120,25 @@ class ApiService {
   Future<List<dynamic>> getLinks() async {
     final response = await http.get(_uri('/api/links'));
     return jsonDecode(response.body) as List<dynamic>;
+  }
+
+  Future<List<Map<String, dynamic>>> getNetworkDevices(
+      {String role = ''}) async {
+    final suffix = role.isEmpty ? '' : '?role=$role';
+    final response = await http.get(_uri('/api/network-devices$suffix'));
+    final data = await _readMap(response);
+    final rows = data['devices'];
+    if (rows is List) return rows.cast<Map<String, dynamic>>();
+    return [];
+  }
+
+  Future<Map<String, dynamic>> addNetworkDevice(Map<String, dynamic> device) {
+    return _postMap('/api/network-devices', device);
+  }
+
+  Future<Map<String, dynamic>> getNetworkDeviceLive(dynamic id) async {
+    final response = await http.get(_uri('/api/network-devices/$id/live'));
+    return _readMap(response);
   }
 
   Future<Map<String, dynamic>> getReminderPreview() async {
@@ -146,12 +169,15 @@ class ApiService {
     return _postMap('/api/sas/save-token', {'token': token});
   }
 
-  Future<Map<String, dynamic>> importSasUsers({required List<dynamic> users}) async {
+  Future<Map<String, dynamic>> importSasUsers(
+      {required List<dynamic> users}) async {
     return _postMap('/api/sas/import-users', {'users': users});
   }
 
-  Future<Map<String, dynamic>> encryptSasUserIndexPayload({required int page, int count = 100}) async {
-    return _postMap('/api/sas/encrypt-user-index-payload', {'page': page, 'count': count});
+  Future<Map<String, dynamic>> encryptSasUserIndexPayload(
+      {required int page, int count = 100}) async {
+    return _postMap(
+        '/api/sas/encrypt-user-index-payload', {'page': page, 'count': count});
   }
 
   Future<Map<String, dynamic>> logoutSasSession() async {
@@ -162,4 +188,3 @@ class ApiService {
     return _postMap('/api/sas/clear-mock-data', {});
   }
 }
-
