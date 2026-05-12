@@ -45,7 +45,7 @@ class LocalNetworkDeviceStore {
       'ip': ip,
       'port': _text(input['port']),
       'connectionMethod': 'local_web',
-      'status': 'configured',
+      'status': 'offline',
       'lastError': '',
       'createdAt': DateTime.now().toIso8601String(),
     };
@@ -64,6 +64,66 @@ class LocalNetworkDeviceStore {
       value: _text(input['password']),
     );
     return {'ok': true, 'device': device, 'message': 'تم حفظ الجهاز محليًا'};
+  }
+
+  Future<void> updateDevice(
+    String id,
+    Map<String, dynamic> changes,
+  ) async {
+    final devices = await getDevices();
+    final index = devices.indexWhere((item) => _text(item['id']) == id);
+    if (index < 0) return;
+    devices[index] = {
+      ...devices[index],
+      ...changes,
+      'updatedAt': DateTime.now().toIso8601String(),
+    };
+    await _saveDevices(devices);
+  }
+
+  Future<void> updateDeviceName(String id, String name) async {
+    final clean = _text(name);
+    if (clean.isEmpty) return;
+    await updateDevice(id, {'name': clean});
+  }
+
+  Future<void> deleteDevice(String id) async {
+    final devices = await getDevices();
+    devices.removeWhere((item) => _text(item['id']) == id);
+    await _saveDevices(devices);
+    await secureStorage.delete(key: 'networkDevice.$id.username');
+    await secureStorage.delete(key: 'networkDevice.$id.password');
+  }
+
+  Future<void> reorderDevices({
+    required String role,
+    required int oldIndex,
+    required int newIndex,
+  }) async {
+    final devices = await getDevices();
+    final roleText = role.toLowerCase();
+    final roleIndexes = <int>[];
+    for (var i = 0; i < devices.length; i++) {
+      if (_text(devices[i]['role']).toLowerCase() == roleText) {
+        roleIndexes.add(i);
+      }
+    }
+    if (oldIndex < 0 || oldIndex >= roleIndexes.length) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex >= roleIndexes.length) newIndex = roleIndexes.length - 1;
+    final moving = devices.removeAt(roleIndexes[oldIndex]);
+    final refreshedIndexes = <int>[];
+    for (var i = 0; i < devices.length; i++) {
+      if (_text(devices[i]['role']).toLowerCase() == roleText) {
+        refreshedIndexes.add(i);
+      }
+    }
+    final insertAt = newIndex >= refreshedIndexes.length
+        ? devices.length
+        : refreshedIndexes[newIndex];
+    devices.insert(insertAt, moving);
+    await _saveDevices(devices);
   }
 
   Future<void> _saveDevices(List<Map<String, dynamic>> devices) async {

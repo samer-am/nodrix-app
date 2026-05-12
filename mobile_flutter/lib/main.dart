@@ -8,9 +8,10 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'services/api_service.dart';
 import 'services/local_network_device_store.dart';
+import 'services/mikrotik_local_service.dart';
 import 'services/ubnt_local_service.dart';
 
-const String currentAppVersion = '1.0.8';
+const String currentAppVersion = '1.0.9';
 const String defaultBackendUrl = 'https://nodrix-app-production.up.railway.app';
 const FlutterSecureStorage secureStorage = FlutterSecureStorage();
 final LocalNetworkDeviceStore localNetworkDevices = LocalNetworkDeviceStore();
@@ -214,6 +215,7 @@ Color statusColor(String status) {
       return AppColors.warning;
     case 'expired':
     case 'offline':
+    case 'configured':
       return AppColors.red;
     case 'paused':
       return AppColors.faint;
@@ -235,7 +237,8 @@ String statusLabel(String status) {
     case 'online':
       return 'متصل';
     case 'offline':
-      return 'متوقف';
+    case 'configured':
+      return 'غير متصل';
     default:
       return status.isEmpty ? 'غير معروف' : status;
   }
@@ -468,6 +471,133 @@ class MiniIcon extends StatelessWidget {
       child: Icon(icon, color: color, size: 19),
     );
   }
+}
+
+class MetricGlyph extends StatelessWidget {
+  final String type;
+  final Color color;
+  final double box;
+
+  const MetricGlyph(this.type, {super.key, required this.color, this.box = 34});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: box,
+      height: box,
+      decoration: BoxDecoration(
+        color: color.withOpacity(.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(.20)),
+      ),
+      child: CustomPaint(painter: _MetricGlyphPainter(type, color)),
+    );
+  }
+}
+
+class _MetricGlyphPainter extends CustomPainter {
+  final String type;
+  final Color color;
+
+  _MetricGlyphPainter(this.type, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final fill = Paint()
+      ..color = color.withOpacity(.88)
+      ..style = PaintingStyle.fill;
+    final c = Offset(size.width / 2, size.height / 2);
+    switch (type) {
+      case 'clients':
+        canvas.drawCircle(
+            Offset(size.width * .38, size.height * .38), 3.2, fill);
+        canvas.drawCircle(
+            Offset(size.width * .62, size.height * .38), 3.2, fill);
+        canvas.drawArc(
+          Rect.fromLTWH(size.width * .20, size.height * .52, size.width * .36,
+              size.height * .24),
+          3.2,
+          2.9,
+          false,
+          paint,
+        );
+        canvas.drawArc(
+          Rect.fromLTWH(size.width * .44, size.height * .52, size.width * .36,
+              size.height * .24),
+          3.2,
+          2.9,
+          false,
+          paint,
+        );
+        break;
+      case 'rx':
+        canvas.drawLine(Offset(c.dx, size.height * .22),
+            Offset(c.dx, size.height * .72), paint);
+        canvas.drawLine(Offset(c.dx, size.height * .72),
+            Offset(size.width * .34, size.height * .56), paint);
+        canvas.drawLine(Offset(c.dx, size.height * .72),
+            Offset(size.width * .66, size.height * .56), paint);
+        break;
+      case 'tx':
+        canvas.drawLine(Offset(c.dx, size.height * .78),
+            Offset(c.dx, size.height * .28), paint);
+        canvas.drawLine(Offset(c.dx, size.height * .28),
+            Offset(size.width * .34, size.height * .44), paint);
+        canvas.drawLine(Offset(c.dx, size.height * .28),
+            Offset(size.width * .66, size.height * .44), paint);
+        break;
+      case 'noise':
+        for (var i = 0; i < 7; i++) {
+          final x = size.width * (.25 + (i % 3) * .18);
+          final y = size.height * (.28 + (i ~/ 3) * .18);
+          canvas.drawCircle(Offset(x, y), 2.3, fill);
+        }
+        break;
+      case 'cpu':
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+                center: c, width: size.width * .42, height: size.height * .42),
+            const Radius.circular(5),
+          ),
+          paint,
+        );
+        for (var i = 0; i < 3; i++) {
+          final p = size.width * (.25 + i * .16);
+          canvas.drawLine(Offset(p, size.height * .15),
+              Offset(p, size.height * .25), paint);
+          canvas.drawLine(Offset(p, size.height * .75),
+              Offset(p, size.height * .85), paint);
+        }
+        break;
+      case 'memory':
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(size.width * .22, size.height * .30, size.width * .52,
+                size.height * .40),
+            const Radius.circular(4),
+          ),
+          paint,
+        );
+        canvas.drawLine(Offset(size.width * .74, size.height * .40),
+            Offset(size.width * .82, size.height * .40), paint);
+        canvas.drawLine(Offset(size.width * .74, size.height * .60),
+            Offset(size.width * .82, size.height * .60), paint);
+        break;
+      default:
+        canvas.drawCircle(c, size.width * .18, paint);
+        canvas.drawCircle(c, size.width * .06, fill);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MetricGlyphPainter oldDelegate) =>
+      oldDelegate.type != type || oldDelegate.color != color;
 }
 
 class StatusPill extends StatelessWidget {
@@ -4434,27 +4564,213 @@ class NetworkDeviceSection extends StatelessWidget {
         if (!loading && items.isEmpty)
           const Text('لا توجد أجهزة مرتبطة حاليًا',
               style: TextStyle(color: AppColors.muted)),
-        for (final item in items)
-          NetworkDeviceRow(api: api, item: item, onChanged: onChanged),
+        if (!loading && items.isNotEmpty)
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            itemCount: items.length,
+            onReorder: (oldIndex, newIndex) async {
+              await localNetworkDevices.reorderDevices(
+                role: asText(items.first['role'], ''),
+                oldIndex: oldIndex,
+                newIndex: newIndex,
+              );
+              onChanged();
+            },
+            itemBuilder: (context, index) => NetworkDeviceRow(
+              key: ValueKey(asText(items[index]['id'], '$index')),
+              api: api,
+              item: items[index],
+              index: index,
+              onChanged: onChanged,
+            ),
+          ),
       ]),
     );
   }
 }
 
-class NetworkDeviceRow extends StatelessWidget {
+class NetworkDeviceRow extends StatefulWidget {
   final ApiService api;
   final Map<String, dynamic> item;
+  final int index;
   final VoidCallback onChanged;
   const NetworkDeviceRow({
     super.key,
     required this.api,
     required this.item,
+    required this.index,
     required this.onChanged,
   });
 
   @override
+  State<NetworkDeviceRow> createState() => _NetworkDeviceRowState();
+}
+
+class _NetworkDeviceRowState extends State<NetworkDeviceRow> {
+  bool busy = false;
+  final ubntLocal = UbntLocalService();
+  final mikrotikLocal = MikrotikLocalService();
+  Map<String, dynamic>? liveItem;
+
+  @override
+  void initState() {
+    super.initState();
+    checkLiveStatus();
+  }
+
+  Future<void> checkLiveStatus() async {
+    final id = asText(widget.item['id']);
+    final vendor = asText(widget.item['vendor'], '').toLowerCase();
+    final username =
+        await secureStorage.read(key: 'networkDevice.$id.username') ??
+            asText(widget.item['username'], '');
+    final password =
+        await secureStorage.read(key: 'networkDevice.$id.password') ?? '';
+    if (username.isEmpty && password.isEmpty) return;
+    Map<String, dynamic>? result;
+    if (vendor.contains('ubiquiti') || vendor.contains('ubnt')) {
+      result = await ubntLocal.readLive(
+        device: widget.item,
+        username: username,
+        password: password,
+        includeClients: false,
+      );
+    } else if (vendor.contains('mikrotik')) {
+      result = await mikrotikLocal.readLive(
+        device: widget.item,
+        username: username,
+        password: password,
+        includeClients: false,
+      );
+    }
+    if (!mounted || result == null) return;
+    final device = Map<String, dynamic>.from((result['device'] as Map?) ?? {});
+    final stats = Map<String, dynamic>.from((result['stats'] as Map?) ?? {});
+    final updated = {
+      ...widget.item,
+      'status': asText(device['status'], 'offline'),
+      'lastError': asText(device['lastError'] ?? result['message'], ''),
+      'model': asText(stats['model'], asText(widget.item['model'], '')),
+      'lastSeenAt': DateTime.now().toIso8601String(),
+    };
+    setState(() => liveItem = updated);
+    await localNetworkDevices.updateDevice(id, updated);
+  }
+
+  Future<void> editName() async {
+    final controller = TextEditingController(text: asText(widget.item['name']));
+    final value = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('تعديل اسم الجهاز'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'اسم الجهاز'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || value.trim().isEmpty) return;
+    await localNetworkDevices.updateDeviceName(
+        asText(widget.item['id']), value);
+    widget.onChanged();
+  }
+
+  Future<void> deleteDevice() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('حذف الجهاز'),
+        content: Text(
+          'هل تريد حذف ${asText(widget.item['name'])} من قائمة الأجهزة؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('حذف'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await localNetworkDevices.deleteDevice(asText(widget.item['id']));
+    widget.onChanged();
+  }
+
+  Future<void> rebootDevice() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('إعادة تشغيل السكتر'),
+        content: Text(
+          'سيتم إرسال أمر reboot إلى ${asText(widget.item['name'])}. هل أنت متأكد؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('تأكيد'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => busy = true);
+    try {
+      final id = asText(widget.item['id']);
+      final username =
+          await secureStorage.read(key: 'networkDevice.$id.username') ??
+              asText(widget.item['username'], '');
+      final password =
+          await secureStorage.read(key: 'networkDevice.$id.password') ?? '';
+      final vendor = asText(widget.item['vendor'], '').toLowerCase();
+      final result = vendor.contains('mikrotik')
+          ? await mikrotikLocal.reboot(
+              device: widget.item,
+              username: username,
+              password: password,
+            )
+          : await ubntLocal.reboot(
+              device: widget.item,
+              username: username,
+              password: password,
+            );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(asText(result['message'], 'تم تنفيذ الأمر'))),
+      );
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final status = asText(item['status'], 'unknown');
+    final item = liveItem ?? widget.item;
+    final status =
+        asText(item['status'], 'offline') == 'online' ? 'online' : 'offline';
+    final model = asText(item['model'], '');
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: InkWell(
@@ -4463,10 +4779,13 @@ class NetworkDeviceRow extends StatelessWidget {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => NetworkDeviceDetailsPage(api: api, device: item),
+              builder: (_) => NetworkDeviceDetailsPage(
+                api: widget.api,
+                device: item,
+              ),
             ),
           );
-          onChanged();
+          widget.onChanged();
         },
         child: Container(
           padding: const EdgeInsets.all(12),
@@ -4476,27 +4795,73 @@ class NetworkDeviceRow extends StatelessWidget {
             border: Border.all(color: AppColors.border),
           ),
           child: Row(children: [
-            MiniIcon(Icons.router_rounded, color: statusColor(status), box: 34),
-            const SizedBox(width: 10),
+            RadioDeviceBadge(model: model, size: 62),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(asText(item['name']),
-                        style: const TextStyle(fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            asText(item['name']),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        StatusPill(status),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
                     Text(
-                      '${asText(item['vendor'], 'vendor')} • ${asText(item['tower'], 'بدون برج')} • ${asText(item['ip'], 'IP غير محدد')}',
+                      '${asText(item['vendor'], 'vendor')} - ${asText(item['tower'], 'بدون برج')} - ${asText(item['ip'], 'IP غير محدد')}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style:
                           const TextStyle(color: AppColors.muted, fontSize: 12),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _rowAction(Icons.restart_alt_rounded, rebootDevice,
+                            enabled: !busy),
+                        _rowAction(Icons.edit_rounded, editName),
+                        _rowAction(Icons.delete_outline_rounded, deleteDevice,
+                            color: AppColors.red),
+                        const Spacer(),
+                        ReorderableDelayedDragStartListener(
+                          index: widget.index,
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.drag_handle_rounded,
+                                color: AppColors.muted, size: 22),
+                          ),
+                        ),
+                      ],
+                    ),
                   ]),
             ),
-            StatusPill(status),
-            const SizedBox(width: 6),
             const Icon(Icons.chevron_left_rounded, color: AppColors.muted),
           ]),
         ),
+      ),
+    );
+  }
+
+  Widget _rowAction(
+    IconData icon,
+    VoidCallback onTap, {
+    Color color = AppColors.primary,
+    bool enabled = true,
+  }) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(icon, size: 20, color: enabled ? color : AppColors.faint),
       ),
     );
   }
@@ -4656,18 +5021,193 @@ class NetworkDeviceDetailsPage extends StatefulWidget {
       _NetworkDeviceDetailsPageState();
 }
 
+class RadioDeviceBadge extends StatelessWidget {
+  final String model;
+  final double size;
+
+  const RadioDeviceBadge({
+    super.key,
+    this.model = '',
+    this.size = 92,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = model.trim().isEmpty ? 'UBNT' : model.trim().split(' ').first;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary.withOpacity(.22),
+            AppColors.panel,
+          ],
+        ),
+        border: Border.all(color: AppColors.primary.withOpacity(.28)),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            right: size * .16,
+            top: size * .14,
+            child: Container(
+              width: size * .34,
+              height: size * .58,
+              decoration: BoxDecoration(
+                color: AppColors.text.withOpacity(.92),
+                borderRadius: BorderRadius.circular(size * .07),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(.24),
+                    blurRadius: 16,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  4,
+                  (index) => Container(
+                    width: size * .09,
+                    height: 3,
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(.75),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: size * .14,
+            bottom: size * .18,
+            child: Icon(
+              Icons.settings_input_antenna_rounded,
+              color: AppColors.primary,
+              size: size * .42,
+            ),
+          ),
+          Positioned(
+            left: size * .12,
+            top: size * .14,
+            child: Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppColors.text.withOpacity(.86),
+                fontSize: size * .11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NanoDeviceBadge extends StatelessWidget {
+  final String model;
+  final double size;
+
+  const NanoDeviceBadge({
+    super.key,
+    this.model = '',
+    this.size = 90,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  AppColors.text.withOpacity(.96),
+                  AppColors.text.withOpacity(.66),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            width: size * .42,
+            height: size * .42,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.card,
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Icon(
+              Icons.wifi_tethering_rounded,
+              color: AppColors.primary,
+              size: size * .26,
+            ),
+          ),
+          Positioned(
+            bottom: 5,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: size * .82),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.panel.withOpacity(.92),
+                borderRadius: BorderRadius.circular(99),
+              ),
+              child: Text(
+                model.trim().isEmpty ? 'Nano' : model.trim(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
   final ubntLocal = UbntLocalService();
+  final mikrotikLocal = MikrotikLocalService();
   Timer? timer;
   Map<String, dynamic>? data;
   bool loading = true;
+  int pollCount = 0;
 
   @override
   void initState() {
     super.initState();
     load();
     timer =
-        Timer.periodic(const Duration(seconds: 3), (_) => load(silent: true));
+        Timer.periodic(const Duration(seconds: 2), (_) => load(silent: true));
   }
 
   @override
@@ -4679,14 +5219,42 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
   Future<void> load({bool silent = false}) async {
     if (!silent) setState(() => loading = true);
     try {
-      final result = await readDeviceLive();
+      final includeClients = !silent || pollCount % 5 == 0;
+      final result = await readDeviceLive(includeClients: includeClients);
+      pollCount++;
+      await persistLiveStatus(result);
+      if (!includeClients && data != null) {
+        result['deviceClients'] = data?['deviceClients'] ?? const [];
+        final currentStats =
+            Map<String, dynamic>.from((result['stats'] as Map?) ?? {});
+        final previousStats =
+            Map<String, dynamic>.from((data?['stats'] as Map?) ?? {});
+        result['stats'] = {
+          ...currentStats,
+          'clients': previousStats['clients'] ?? currentStats['clients'],
+        };
+      }
       if (mounted) setState(() => data = result);
     } finally {
       if (mounted && !silent) setState(() => loading = false);
     }
   }
 
-  Future<Map<String, dynamic>> readDeviceLive() async {
+  Future<void> persistLiveStatus(Map<String, dynamic> result) async {
+    final device = Map<String, dynamic>.from((result['device'] as Map?) ?? {});
+    final stats = Map<String, dynamic>.from((result['stats'] as Map?) ?? {});
+    final id = asText(device['id'], asText(widget.device['id'], ''));
+    if (id.isEmpty) return;
+    await localNetworkDevices.updateDevice(id, {
+      'status': asText(device['status'], 'offline'),
+      'lastError': asText(device['lastError'] ?? result['message'], ''),
+      'model': asText(stats['model'], asText(device['model'], '')),
+      'lastSeenAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<Map<String, dynamic>> readDeviceLive(
+      {bool includeClients = true}) async {
     final vendor = asText(widget.device['vendor'], '').toLowerCase();
     final deviceId = asText(widget.device['id'], '');
     if (vendor.contains('ubiquiti') || vendor.contains('ubnt')) {
@@ -4701,6 +5269,23 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
           device: widget.device,
           username: localUsername,
           password: localPassword,
+          includeClients: includeClients,
+        );
+      }
+    }
+    if (vendor.contains('mikrotik')) {
+      final localUsername =
+          await secureStorage.read(key: 'networkDevice.$deviceId.username') ??
+              asText(widget.device['username'], '');
+      final localPassword =
+          await secureStorage.read(key: 'networkDevice.$deviceId.password') ??
+              '';
+      if (localUsername.isNotEmpty || localPassword.isNotEmpty) {
+        return mikrotikLocal.readLive(
+          device: widget.device,
+          username: localUsername,
+          password: localPassword,
+          includeClients: includeClients,
         );
       }
     }
@@ -4736,12 +5321,28 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
     }
   }
 
-  Widget metric(IconData icon, String label, String value, String unit,
+  Future<void> openClientsPage(
+    Map<String, dynamic> device,
+    List<Map<String, dynamic>> clients,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NetworkDeviceClientsPage(
+          device: device,
+          clients: clients,
+          onOpenIp: openIp,
+        ),
+      ),
+    );
+  }
+
+  Widget metric(String glyph, String label, String value, String unit,
       {Color color = AppColors.primary}) {
     return AppCard(
       color: AppColors.panel,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        MiniIcon(icon, color: color, box: 34),
+        MetricGlyph(glyph, color: color, box: 34),
         const SizedBox(height: 16),
         Text(label,
             maxLines: 1,
@@ -4762,15 +5363,14 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
     final device =
         Map<String, dynamic>.from((data?['device'] as Map?) ?? widget.device);
     final stats = Map<String, dynamic>.from((data?['stats'] as Map?) ?? {});
-    final customers = ((data?['customers'] as List?) ?? [])
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
     final deviceClients = ((data?['deviceClients'] as List?) ?? [])
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
     final lastError = asText(device['lastError'] ?? data?['message'], '');
+    final model = asText(stats['model'], '');
+    final firmware = asText(stats['firmware'], '');
+    final essid = asText(stats['essid'], '');
     return Scaffold(
       appBar: AppBar(title: Text(asText(device['name']))),
       body: ListView(
@@ -4793,6 +5393,33 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
                               color: AppColors.text,
                               fontSize: 18,
                               fontWeight: FontWeight.w800)),
+                      if (model.isNotEmpty || firmware.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          [
+                            if (model.isNotEmpty) model,
+                            if (firmware.isNotEmpty) firmware,
+                          ].join(' - '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                      if (essid.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          essid,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 22),
                       Text('${asText(stats['uptime'], '--')} Uptime',
                           style: const TextStyle(
@@ -4800,7 +5427,7 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
                               fontWeight: FontWeight.w800)),
                     ]),
               ),
-              MiniIcon(Icons.router_rounded, color: AppColors.primary, box: 86),
+              RadioDeviceBadge(model: model, size: 98),
             ]),
           ),
           if (lastError.isNotEmpty) ...[
@@ -4833,127 +5460,257 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
             mainAxisSpacing: 10,
             childAspectRatio: .72,
             children: [
-              metric(Icons.groups_rounded, 'Clients',
-                  asText(stats['clients'], '0'), ''),
-              metric(Icons.arrow_downward_rounded, 'RX',
-                  asText(stats['rxMbps'], '0'), 'Mbps'),
-              metric(Icons.arrow_upward_rounded, 'TX',
-                  asText(stats['txMbps'], '0'), 'Mbps',
+              metric('clients', 'Clients', asText(stats['clients'], '0'), ''),
+              metric('rx', 'RX', asText(stats['rxMbps'], '0'), 'Mbps'),
+              metric('tx', 'TX', asText(stats['txMbps'], '0'), 'Mbps',
                   color: AppColors.warning),
-              metric(Icons.blur_on_rounded, 'Noise',
-                  asText(stats['noise'], '--'), 'dBm',
+              metric('noise', 'Noise', asText(stats['noise'], '--'), 'dBm',
                   color: AppColors.red),
-              metric(Icons.compare_arrows_rounded, 'Distance',
-                  asText(stats['distance'], '--'), 'm',
-                  color: AppColors.green),
-              metric(Icons.wifi_rounded, 'Frequency',
-                  asText(stats['frequency'], '--'), 'MHz',
+              metric(
+                  'distance', 'Distance', asText(stats['distance'], '--'), 'm',
                   color: AppColors.green),
               metric(
-                  Icons.speed_rounded, 'CCQ', asText(stats['ccq'], '--'), '%'),
+                  'freq', 'Frequency', asText(stats['frequency'], '--'), 'MHz',
+                  color: AppColors.green),
+              metric('ccq', 'CCQ', asText(stats['ccq'], '--'), '%'),
+              metric('cpu', 'CPU', asText(stats['cpu'], '--'), '%'),
+              metric('memory', 'Memory', asText(stats['memory'], '--'), '%'),
               metric(
-                  Icons.memory_rounded, 'CPU', asText(stats['cpu'], '--'), '%'),
-              metric(Icons.storage_rounded, 'Memory',
-                  asText(stats['memory'], '--'), '%'),
-              metric(Icons.timer_rounded, 'Latency',
-                  asText(stats['txLatency'], '--'), 'ms',
+                  'latency', 'Latency', asText(stats['txLatency'], '--'), 'ms',
                   color: AppColors.warning),
-              metric(Icons.power_rounded, 'TX Power',
-                  asText(stats['txPower'], '--'), 'dBm'),
-              metric(Icons.settings_ethernet_rounded, 'LAN',
-                  asText(stats['lanSpeed'], '--'), ''),
+              metric(
+                  'power', 'TX Power', asText(stats['txPower'], '--'), 'dBm'),
+              metric('lan', 'LAN', asText(stats['lanSpeed'], '--'), ''),
             ],
           ),
           const SizedBox(height: 12),
-          AppCard(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Clients من الجهاز',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 12),
-              if (deviceClients.isEmpty)
-                const Text('لا توجد IPs مقروءة من الجهاز حاليًا.',
-                    style: TextStyle(color: AppColors.muted)),
-              for (final client in deviceClients)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: InkWell(
-                    onTap: () => openIp(asText(client['ip'], '')),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.panel,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Row(children: [
-                        const MiniIcon(Icons.devices_other_rounded, box: 34),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                asText(client['name'], 'Client'),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w900),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${asText(client['ip'], 'IP غير متوفر')}  •  ${asText(client['mac'], 'MAC غير متوفر')}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    color: AppColors.muted, fontSize: 12),
-                              ),
-                              if (client['customer'] is Map)
-                                Text(
-                                  'مطابق: ${asText((client['customer'] as Map)['name'], '')}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: AppColors.green,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800),
-                                ),
-                            ],
+          InkWell(
+            onTap: () => openClientsPage(device, deviceClients),
+            borderRadius: BorderRadius.circular(18),
+            child: AppCard(
+              child: Row(
+                children: [
+                  const MiniIcon(Icons.groups_rounded, box: 42),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Clients',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                        if (asText(client['ip'], '').isNotEmpty)
-                          const Icon(Icons.open_in_browser_rounded,
-                              color: AppColors.primary),
-                      ]),
+                        const SizedBox(height: 4),
+                        Text(
+                          deviceClients.isEmpty
+                              ? 'لا توجد أجهزة مرتبطة حاليًا'
+                              : '${deviceClients.length} جهاز مرتبط بالسكتور',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-            ]),
-          ),
-          const SizedBox(height: 12),
-          AppCard(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('المشتركون المرتبطون',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 12),
-              if (customers.isEmpty)
-                const Text('لا توجد مطابقة حالية حسب البرج أو اسم السكتر.',
-                    style: TextStyle(color: AppColors.muted)),
-              for (final customer in customers)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: CustomerCard(
-                    api: widget.api,
-                    customer: customer,
-                    onChanged: () {},
-                  ),
-                ),
-            ]),
+                  const Icon(Icons.chevron_left_rounded,
+                      color: AppColors.muted),
+                ],
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class NetworkDeviceClientsPage extends StatelessWidget {
+  final Map<String, dynamic> device;
+  final List<Map<String, dynamic>> clients;
+  final Future<void> Function(String ip) onOpenIp;
+
+  const NetworkDeviceClientsPage({
+    super.key,
+    required this.device,
+    required this.clients,
+    required this.onOpenIp,
+  });
+
+  Widget valueChip(
+    IconData icon,
+    String label,
+    String value, {
+    Color color = AppColors.primary,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.12),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11.5,
+                  ),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: color.withOpacity(.78),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget clientCard(Map<String, dynamic> client) {
+    final ip = asText(client['ip'], '');
+    final name = asText(client['name'], 'Client');
+    final model = asText(client['model'], '');
+    return AppCard(
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(child: NanoDeviceBadge(model: model, size: 76)),
+          const SizedBox(height: 9),
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.08,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (model.isNotEmpty && model != name) ...[
+            const SizedBox(height: 4),
+            Text(
+              model,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Text(
+            ip.isEmpty ? 'IP غير متوفر' : ip,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          valueChip(
+            Icons.signal_cellular_alt_rounded,
+            'Signal',
+            asText(client['signal'], '-- dBm'),
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 6),
+          valueChip(
+            Icons.speed_rounded,
+            'CCQ',
+            asText(client['ccq'], '--'),
+            color: AppColors.purple,
+          ),
+          const SizedBox(height: 6),
+          valueChip(
+            Icons.blur_on_rounded,
+            'Noise Floor',
+            asText(client['noise'], '-- dBm'),
+            color: AppColors.red,
+          ),
+          const SizedBox(height: 6),
+          valueChip(
+            Icons.arrow_downward_rounded,
+            'Rx Rate',
+            asText(client['rxRate'], '-- Mbps'),
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 6),
+          valueChip(
+            Icons.arrow_upward_rounded,
+            'Tx Rate',
+            asText(client['txRate'], '-- Mbps'),
+            color: AppColors.warning,
+          ),
+          const SizedBox(height: 6),
+          valueChip(
+            Icons.timer_rounded,
+            'Uptime',
+            asText(client['uptime'], '--'),
+            color: AppColors.muted,
+          ),
+          const Spacer(),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: ip.isEmpty ? null : () => onOpenIp(ip),
+              icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+              label: const Text('فتح الجهاز'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('عملاء ${asText(device['name'])}')),
+      body: clients.isEmpty
+          ? const Center(
+              child: Text(
+                'لا توجد أجهزة مرتبطة حاليًا',
+                style: TextStyle(color: AppColors.muted),
+              ),
+            )
+          : GridView.builder(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: .30,
+              ),
+              itemCount: clients.length,
+              itemBuilder: (_, index) => clientCard(clients[index]),
+            ),
     );
   }
 }
