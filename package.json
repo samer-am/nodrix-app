@@ -1,6 +1,6 @@
 {
   "name": "nodrix-app",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "private": true,
   "type": "module",
   "description": "Nodrix monorepo. Root package is provided so Railway can deploy from the repository root.",

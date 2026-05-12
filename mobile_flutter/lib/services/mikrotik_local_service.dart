@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:crypto/crypto.dart';
 
 class MikrotikLocalService {
   static const Duration timeout = Duration(seconds: 6);
@@ -63,6 +66,18 @@ class MikrotikLocalService {
         errors.add('$baseUrl $error');
       }
     }
+    try {
+      return await _readClassicApi(
+        device: device,
+        host: host,
+        port: port,
+        username: username,
+        password: password,
+        includeClients: includeClients,
+      );
+    } catch (error) {
+      errors.add('routeros-api $error');
+    }
     return _failure(
       device,
       errors.isEmpty
@@ -96,12 +111,86 @@ class MikrotikLocalService {
         errors.add('$baseUrl $error');
       }
     }
+    try {
+      final api = _RouterOsApiClient(
+        host: host,
+        port: int.tryParse(port).clampApiPort(),
+        username: username,
+        password: password,
+      );
+      await api.connect();
+      await api.command('/system/reboot');
+      await api.close();
+      return {'ok': true, 'message': 'تم إرسال أمر إعادة التشغيل'};
+    } catch (error) {
+      errors.add('routeros-api $error');
+    }
     return {
       'ok': false,
       'message': errors.isEmpty
           ? 'تعذر إرسال أمر إعادة التشغيل'
           : 'تعذر إرسال أمر إعادة التشغيل: ${errors.take(2).join(' | ')}',
     };
+  }
+
+  Future<Map<String, dynamic>> _readClassicApi({
+    required Map<String, dynamic> device,
+    required String host,
+    required String port,
+    required String username,
+    required String password,
+    required bool includeClients,
+  }) async {
+    final api = _RouterOsApiClient(
+      host: host,
+      port: int.tryParse(port).clampApiPort(),
+      username: username,
+      password: password,
+    );
+    await api.connect();
+    try {
+      final resource = await api.command('/system/resource/print');
+      final identity = await api.command('/system/identity/print');
+      final interfaces = await api.command('/interface/print');
+      final clients = <Map<String, dynamic>>[];
+      if (includeClients) {
+        for (final command in const [
+          '/interface/wireless/registration-table/print',
+          '/interface/wifi/registration-table/print',
+          '/ip/dhcp-server/lease/print',
+        ]) {
+          try {
+            for (final row in await api.command(command)) {
+              final client = _clientFrom(row);
+              if (client != null) clients.add(client);
+            }
+          } catch (_) {}
+        }
+      }
+      final stats = _statsFrom(
+        device: device,
+        baseUrl: 'api://$host:${api.port}',
+        resource: resource.isEmpty ? const {} : resource.first,
+        identity: identity.isEmpty ? const {} : identity.first,
+        interfaces: interfaces,
+        clients: clients,
+      );
+      return {
+        'ok': true,
+        'real': true,
+        'adapter': 'mikrotik-routeros-api',
+        'device': {
+          ...device,
+          'status': 'online',
+          'lastError': '',
+        },
+        'stats': stats,
+        'deviceClients': clients,
+        'customers': const [],
+      };
+    } finally {
+      await api.close();
+    }
   }
 
   Future<List<Map<String, dynamic>>> _readClients(
@@ -361,6 +450,204 @@ class MikrotikLocalService {
       double.tryParse(_text(value).replaceAll(',', '')) ?? 0;
 
   String _text(dynamic value) => value == null ? '' : '$value'.trim();
+}
+
+extension _ApiPort on int? {
+  int clampApiPort() {
+    final value = this;
+    if (value == null || value <= 0 || value == 80 || value == 443) {
+      return 8728;
+    }
+    return value;
+  }
+}
+
+class _RouterOsApiClient {
+  final String host;
+  final int port;
+  final String username;
+  final String password;
+  Socket? _socket;
+  StreamIterator<List<int>>? _iterator;
+
+  _RouterOsApiClient({
+    required this.host,
+    required this.port,
+    required this.username,
+    required this.password,
+  });
+
+  Future<void> connect() async {
+    _socket =
+        await Socket.connect(host, port, timeout: MikrotikLocalService.timeout);
+    _iterator = StreamIterator<List<int>>(_socket!);
+    await _login();
+  }
+
+  Future<void> close() async {
+    await _iterator?.cancel();
+    _socket?.destroy();
+  }
+
+  Future<List<Map<String, dynamic>>> command(
+    String command, [
+    Map<String, String> attrs = const {},
+  ]) async {
+    final words = <String>[command];
+    for (final entry in attrs.entries) {
+      words.add('=${entry.key}=${entry.value}');
+    }
+    _writeSentence(words);
+    return _readRows();
+  }
+
+  Future<void> _login() async {
+    _writeSentence(['/login', '=name=$username', '=password=$password']);
+    final rows = await _readRows(allowTrap: true);
+    if (rows.isNotEmpty && rows.first.containsKey('ret')) {
+      final challenge = rows.first['ret'] ?? '';
+      final digest = md5.convert([
+        0,
+        ...utf8.encode(password),
+        ..._hexToBytes(challenge),
+      ]).toString();
+      _writeSentence(['/login', '=name=$username', '=response=00$digest']);
+      await _readRows();
+    }
+  }
+
+  List<int> _hexToBytes(String hex) {
+    final out = <int>[];
+    for (var i = 0; i + 1 < hex.length; i += 2) {
+      out.add(int.parse(hex.substring(i, i + 2), radix: 16));
+    }
+    return out;
+  }
+
+  Future<List<Map<String, dynamic>>> _readRows({bool allowTrap = false}) async {
+    final rows = <Map<String, dynamic>>[];
+    while (true) {
+      final sentence = await _readSentence();
+      if (sentence.isEmpty) continue;
+      final kind = sentence.first;
+      final row = _attrsFromSentence(sentence);
+      if (kind == '!done') {
+        if (row.isNotEmpty) rows.add(row);
+        return rows;
+      }
+      if (kind == '!re') {
+        rows.add(row);
+        continue;
+      }
+      if (kind == '!trap') {
+        if (allowTrap) return [row];
+        throw row['message']?.toString() ?? 'RouterOS API trap';
+      }
+    }
+  }
+
+  Map<String, dynamic> _attrsFromSentence(List<String> sentence) {
+    final row = <String, dynamic>{};
+    for (final word in sentence.skip(1)) {
+      if (word.startsWith('=')) {
+        final cut = word.indexOf('=', 1);
+        if (cut > 1) row[word.substring(1, cut)] = word.substring(cut + 1);
+      }
+    }
+    return row;
+  }
+
+  Future<List<String>> _readSentence() async {
+    final words = <String>[];
+    while (true) {
+      final word = await _readWord();
+      if (word.isEmpty) return words;
+      words.add(word);
+    }
+  }
+
+  void _writeSentence(List<String> words) {
+    final bytes = BytesBuilder();
+    for (final word in words) {
+      final data = utf8.encode(word);
+      bytes.add(_encodeLength(data.length));
+      bytes.add(data);
+    }
+    bytes.add([0]);
+    _socket!.add(bytes.toBytes());
+  }
+
+  Future<String> _readWord() async {
+    final length = await _readLength();
+    if (length == 0) return '';
+    final bytes = await _readExactly(length);
+    return utf8.decode(bytes);
+  }
+
+  Future<int> _readLength() async {
+    final first = await _readByte();
+    if ((first & 0x80) == 0) return first;
+    if ((first & 0xC0) == 0x80) {
+      return ((first & ~0xC0) << 8) + await _readByte();
+    }
+    if ((first & 0xE0) == 0xC0) {
+      return ((first & ~0xE0) << 16) +
+          ((await _readByte()) << 8) +
+          await _readByte();
+    }
+    if ((first & 0xF0) == 0xE0) {
+      return ((first & ~0xF0) << 24) +
+          ((await _readByte()) << 16) +
+          ((await _readByte()) << 8) +
+          await _readByte();
+    }
+    return ((await _readByte()) << 24) +
+        ((await _readByte()) << 16) +
+        ((await _readByte()) << 8) +
+        await _readByte();
+  }
+
+  List<int> _encodeLength(int length) {
+    if (length < 0x80) return [length];
+    if (length < 0x4000) return [(length >> 8) | 0x80, length & 0xFF];
+    if (length < 0x200000) {
+      return [(length >> 16) | 0xC0, (length >> 8) & 0xFF, length & 0xFF];
+    }
+    if (length < 0x10000000) {
+      return [
+        (length >> 24) | 0xE0,
+        (length >> 16) & 0xFF,
+        (length >> 8) & 0xFF,
+        length & 0xFF,
+      ];
+    }
+    return [
+      0xF0,
+      (length >> 24) & 0xFF,
+      (length >> 16) & 0xFF,
+      (length >> 8) & 0xFF,
+      length & 0xFF,
+    ];
+  }
+
+  final _pending = <int>[];
+
+  Future<int> _readByte() async {
+    final bytes = await _readExactly(1);
+    return bytes.first;
+  }
+
+  Future<List<int>> _readExactly(int length) async {
+    while (_pending.length < length) {
+      final ok =
+          await _iterator!.moveNext().timeout(MikrotikLocalService.timeout);
+      if (!ok) throw 'RouterOS API connection closed';
+      _pending.addAll(_iterator!.current);
+    }
+    final out = _pending.take(length).toList();
+    _pending.removeRange(0, length);
+    return out;
+  }
 }
 
 class _LocalResponse {

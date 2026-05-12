@@ -347,30 +347,55 @@ class UbntLocalService {
     final directRxMbps = _rateToMbps(_firstDeep(map, const [
       'rx_rate',
       'rxrate',
+      'rx-rate',
       'rxRate',
+      'rxRateMbps',
+      'rxrateMbps',
       'rx_rate_mbps',
       'rx_mbps',
+      'rx_phy_rate',
+      'rx_data_rate',
+      'rx_datarate',
+      'rxrate_mbps',
+      'rxRate_mbps',
       'throughput.rx',
       'rx_throughput',
       'wlan.rx_rate',
+      'wlan.rxrate',
       'wireless.rx_rate',
+      'wireless.rxrate',
+      'airmax.rx_rate',
+      'airmax.rxrate',
     ]));
     final directTxMbps = _rateToMbps(_firstDeep(map, const [
       'tx_rate',
       'txrate',
+      'tx-rate',
       'txRate',
+      'txRateMbps',
+      'txrateMbps',
       'tx_rate_mbps',
       'tx_mbps',
+      'tx_phy_rate',
+      'tx_data_rate',
+      'tx_datarate',
+      'txrate_mbps',
+      'txRate_mbps',
       'throughput.tx',
       'tx_throughput',
       'wlan.tx_rate',
+      'wlan.txrate',
       'wireless.tx_rate',
+      'wireless.txrate',
+      'airmax.tx_rate',
+      'airmax.txrate',
     ]));
     final counterRates = _counterRateMbps(
       '$baseUrl|${_text(device['id'])}',
       rxBytes,
       txBytes,
     );
+    final clientRates = _clientRateSummary(clients);
     return {
       'connected': true,
       'real': true,
@@ -392,8 +417,16 @@ class UbntLocalService {
         'airmax_quality',
         'polling_quality',
       ]),
-      'rxMbps': directRxMbps > 0 ? directRxMbps : counterRates.rx,
-      'txMbps': directTxMbps > 0 ? directTxMbps : counterRates.tx,
+      'rxMbps': directRxMbps > 0
+          ? directRxMbps
+          : clientRates.rx > 0
+              ? clientRates.rx
+              : counterRates.rx,
+      'txMbps': directTxMbps > 0
+          ? directTxMbps
+          : clientRates.tx > 0
+              ? clientRates.tx
+              : counterRates.tx,
       'rxBytes': rxBytes,
       'txBytes': txBytes,
       'ethernet': _text(_firstDeep(map, const [
@@ -552,26 +585,40 @@ class UbntLocalService {
     final rxRate = _firstDeep(raw, const [
       'rx_rate',
       'rxrate',
+      'rx-rate',
       'rxRate',
+      'rxRateMbps',
       'rx_mbps',
       'rxrate_mbps',
+      'rx_phy_rate',
       'rx_data_rate',
+      'rx_datarate',
       'rx_data_rate_mbps',
       'airmax.rx_rate',
+      'airmax.rxrate',
       'stats.rx_rate',
       'remote.rx_rate',
+      'remote.rxrate',
+      'rx',
     ]);
     final txRate = _firstDeep(raw, const [
       'tx_rate',
       'txrate',
+      'tx-rate',
       'txRate',
+      'txRateMbps',
       'tx_mbps',
       'txrate_mbps',
+      'tx_phy_rate',
       'tx_data_rate',
+      'tx_datarate',
       'tx_data_rate_mbps',
       'airmax.tx_rate',
+      'airmax.txrate',
       'stats.tx_rate',
       'remote.tx_rate',
+      'remote.txrate',
+      'tx',
     ]);
     final ccq = _firstDeep(raw, const [
       'ccq',
@@ -675,6 +722,29 @@ class UbntLocalService {
   }
 
   double _rateToMbps(dynamic value) {
+    if (value is Map) {
+      final preferred = _firstValue(value, const [
+        'rate',
+        'mbps',
+        'value',
+        'current',
+        'avg',
+      ]);
+      final parsed = _rateToMbps(preferred);
+      if (parsed > 0) return parsed;
+      for (final item in value.values) {
+        final parsed = _rateToMbps(item);
+        if (parsed > 0) return parsed;
+      }
+      return 0;
+    }
+    if (value is List) {
+      for (final item in value) {
+        final parsed = _rateToMbps(item);
+        if (parsed > 0) return parsed;
+      }
+      return 0;
+    }
     final text = _text(value).toLowerCase();
     if (text.isEmpty) return 0;
     final numberText = text
@@ -731,6 +801,18 @@ class UbntLocalService {
     final mbps = _rateToMbps(value);
     if (mbps <= 0) return text;
     return '${mbps.toStringAsFixed(mbps >= 10 ? 1 : 2)} Mbps';
+  }
+
+  _RatePair _clientRateSummary(List<Map<String, dynamic>> clients) {
+    var rx = 0.0;
+    var tx = 0.0;
+    for (final client in clients) {
+      final clientRx = _rateToMbps(client['rxRate']);
+      final clientTx = _rateToMbps(client['txRate']);
+      if (clientRx > rx) rx = clientRx;
+      if (clientTx > tx) tx = clientTx;
+    }
+    return _RatePair(rx, tx);
   }
 
   String _formatDbm(dynamic value) {

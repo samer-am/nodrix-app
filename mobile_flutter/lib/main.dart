@@ -5229,9 +5229,15 @@ class _NetworkDeviceDetailsPageState extends State<NetworkDeviceDetailsPage> {
             Map<String, dynamic>.from((result['stats'] as Map?) ?? {});
         final previousStats =
             Map<String, dynamic>.from((data?['stats'] as Map?) ?? {});
+        final rx = double.tryParse(asText(currentStats['rxMbps'], '0')) ?? 0;
+        final tx = double.tryParse(asText(currentStats['txMbps'], '0')) ?? 0;
         result['stats'] = {
           ...currentStats,
           'clients': previousStats['clients'] ?? currentStats['clients'],
+          if (rx <= 0 && previousStats['rxMbps'] != null)
+            'rxMbps': previousStats['rxMbps'],
+          if (tx <= 0 && previousStats['txMbps'] != null)
+            'txMbps': previousStats['txMbps'],
         };
       }
       if (mounted) setState(() => data = result);

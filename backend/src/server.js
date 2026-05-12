@@ -1876,8 +1876,10 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/app-version', (req, res) => {
-  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.7';
-  const apkUrl = process.env.APP_APK_URL || `${publicBaseUrl}/downloads/nodrix-latest.apk`;
+  const latestVersion = process.env.APP_LATEST_VERSION || '1.0.9';
+  const apkUrl =
+    process.env.APP_APK_URL ||
+    'https://github.com/samer-am/nodrix-app/releases/download/v1.0.9/nodrix-v1.0.9.apk';
   const notes =
     process.env.APP_UPDATE_NOTES ||
     'ربط لوحة SAS Radius / UniqueFi، مزامنة المشتركين الحقيقيين، تنظيف البيانات الوهمية، وإصلاح التحديث المباشر.';
